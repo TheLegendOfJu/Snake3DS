@@ -5,6 +5,7 @@
 #include <vector>
 #include <string>
 #include <ctime>
+#include <math.h>
 
 // Bildschirm-Dimensionen
 #define TOP_WIDTH 400
@@ -22,12 +23,7 @@ enum GameState {
 };
 
 // Richtungen für die Schlange
-enum Direction {
-    DIR_UP,
-    DIR_DOWN,
-    DIR_LEFT,
-    DIR_RIGHT
-};
+enum Direction { DIR_UP, DIR_DOWN, DIR_LEFT, DIR_RIGHT };
 
 // Struktur für Farben (RGB)
 struct Color {
@@ -37,8 +33,7 @@ struct Color {
     }
 };
 
-// Kompakter 8x8 Font für ASCII (32 bis 127), gespeichert als 64-Bit Integers
-// Jedes Bit repräsentiert einen Pixel (8 Zeilen x 8 Spalten)
+// Kompakter 8x8 Font für ASCII (32 bis 127)
 const uint64_t font8x8[96] = {
     0x0000000000000000, 0x00183C3C18180018, 0x0066666600000000, 0x0036367F367F3636,
     0x000C1EE07C0F7830, 0x000063660C1833C6, 0x00386C6C386D663B, 0x000C181800000000,
@@ -66,81 +61,67 @@ const uint64_t font8x8[96] = {
     0x0018181818181818, 0x007018180E181870, 0x00000000324C0000
 };
 
-// Zeichnet einen einzelnen Pixel in den Framebuffer
-// Die Displays des 3DS sind physisch im Hochformat eingebaut (rotated um 90 Grad)
+// Grafik-Hilfsfunktionen
 void drawPixel(u8* fb, int x, int y, int screen_width, int screen_height, Color c) {
     if (x < 0 || x >= screen_width || y < 0 || y >= screen_height) return;
     int index = ((x * screen_height) + (screen_height - 1 - y)) * 3;
-    fb[index] = c.b;
-    fb[index + 1] = c.g;
-    fb[index + 2] = c.r;
+    fb[index] = c.b; fb[index + 1] = c.g; fb[index + 2] = c.r;
 }
 
-// Zeichnet ein gefülltes Rechteck
 void fillRect(u8* fb, int x, int y, int w, int h, int screen_width, int screen_height, Color c) {
-    for (int i = 0; i < w; i++) {
-        for (int j = 0; j < h; j++) {
+    for (int i = 0; i < w; i++)
+        for (int j = 0; j < h; j++)
             drawPixel(fb, x + i, y + j, screen_width, screen_height, c);
-        }
-    }
 }
 
-// Zeichnet den Umriss eines Rechtecks
 void drawRect(u8* fb, int x, int y, int w, int h, int screen_width, int screen_height, Color c) {
-    for (int i = 0; i < w; i++) {
-        drawPixel(fb, x + i, y, screen_width, screen_height, c);
-        drawPixel(fb, x + i, y + h - 1, screen_width, screen_height, c);
-    }
-    for (int j = 0; j < h; j++) {
-        drawPixel(fb, x, y + j, screen_width, screen_height, c);
-        drawPixel(fb, x + w - 1, y + j, screen_width, screen_height, c);
-    }
+    for (int i = 0; i < w; i++) { drawPixel(fb, x + i, y, screen_width, screen_height, c); drawPixel(fb, x + i, y + h - 1, screen_width, screen_height, c); }
+    for (int j = 0; j < h; j++) { drawPixel(fb, x, y + j, screen_width, screen_height, c); drawPixel(fb, x + w - 1, y + j, screen_width, screen_height, c); }
 }
 
-// Zeichnet ein einzelnes Zeichen skaliert
 void drawChar(u8* fb, int x, int y, char c, int scale, int screen_width, int screen_height, Color fg) {
     if (c < 32 || c > 127) return;
     uint64_t bitmap = font8x8[c - 32];
     for (int row = 0; row < 8; row++) {
         for (int col = 0; col < 8; col++) {
-            // Lese das Bit von links nach rechts
-            if (bitmap & (1ULL << (63 - (row * 8 + col)))) {
+            if (bitmap & (1ULL << (63 - (row * 8 + col))))
                 fillRect(fb, x + col * scale, y + row * scale, scale, scale, screen_width, screen_height, fg);
-            }
         }
     }
 }
 
-// Zeichnet einen String
 void drawString(u8* fb, int x, int y, const char* str, int scale, int screen_width, int screen_height, Color fg) {
     int curr_x = x;
     while (*str) {
         drawChar(fb, curr_x, y, *str, scale, screen_width, screen_height, fg);
-        curr_x += 8 * scale; // Bewege X um die Breite des Zeichens
+        curr_x += 8 * scale;
         str++;
     }
 }
 
-// Leert den Bildschirm
 void clearScreen(u8* fb, int screen_width, int screen_height, Color c) {
     for(int i=0; i<screen_width*screen_height*3; i+=3) {
         fb[i] = c.b; fb[i+1] = c.g; fb[i+2] = c.r;
     }
 }
 
-// Touch-Button Klasse
+Color getRainbow(int offset) {
+    u8 r = (sin(offset * 0.05) * 127 + 128);
+    u8 g = (sin(offset * 0.05 + 2) * 127 + 128);
+    u8 b = (sin(offset * 0.05 + 4) * 127 + 128);
+    return {r, g, b};
+}
+
+// UI Klassen & Settings
 struct Button {
     int x, y, w, h;
     const char* text;
     bool isClicked(touchPosition touch) {
-        return (touch.px >= x && touch.px <= x + w &&
-                touch.py >= y && touch.py <= y + h);
+        return (touch.px >= x && touch.px <= x + w && touch.py >= y && touch.py <= y + h);
     }
     void draw(u8* fb, Color fg, Color bg, Color border) {
         fillRect(fb, x, y, w, h, BOT_WIDTH, BOT_HEIGHT, bg);
         drawRect(fb, x, y, w, h, BOT_WIDTH, BOT_HEIGHT, border);
-        
-        // Zentriere Text grob
         int text_w = strlen(text) * 8 * 2;
         int text_x = x + (w - text_w) / 2;
         int text_y = y + (h - 16) / 2;
@@ -148,72 +129,55 @@ struct Button {
     }
 };
 
-// Globale Einstellungen
 bool white_mode = false;
 int highscore = 0;
-int volume = 50; // In Prozent (0-100)
+int volume = 50;
 
-// Spielfeld Optionen
 enum GridSize { SIZE_SMALL, SIZE_MEDIUM, SIZE_LARGE };
 GridSize current_size = SIZE_MEDIUM;
 int apple_count = 3;
-int speed_multiplier = 1; // 0 = 0.5x, 1 = 1.0x, 2 = 2.0x
+int speed_multiplier = 1;
 
-// In-Game Variablen
 struct Point { int x, y; };
+struct Apple { Point pos; bool gold; };
+
 std::vector<Point> snake;
-std::vector<Point> apples;
+std::vector<Apple> apples;
 Direction current_dir = DIR_RIGHT;
 Direction next_dir = DIR_RIGHT;
+Direction last_move_dir = DIR_RIGHT; // Fixt den Bug, bei dem man sich selbst auffrisst
 int score = 0;
-int frame_count = 0;
+int tick_timer = 0;
+unsigned int global_frame = 0;
 
-// Felddimensionen im Spiel (Tile basiert, 10x10 Pixel)
 int grid_w, grid_h, offset_x, offset_y;
 
 void loadHighscore() {
     FILE* f = fopen("sdmc:/snake_highscore.txt", "r");
-    if (f) {
-        fscanf(f, "%d", &highscore);
-        fclose(f);
-    }
+    if (f) { fscanf(f, "%d", &highscore); fclose(f); }
 }
 
 void saveHighscore() {
     FILE* f = fopen("sdmc:/snake_highscore.txt", "w");
-    if (f) {
-        fprintf(f, "%d", highscore);
-        fclose(f);
-    }
+    if (f) { fprintf(f, "%d", highscore); fclose(f); }
 }
 
 void applyVolume() {
-    // libctru NDSP Nutzung für simple Audio-Regelung
-    // Da wir keine Musik abspielen, limitieren wir uns auf ndspSetMasterVol
-    float volFloat = volume / 100.0f;
-    ndspSetMasterVol(volFloat);
+    ndspSetMasterVol(volume / 100.0f);
 }
 
 void spawnApple() {
-    Point a;
+    Apple a;
     bool valid = false;
     while (!valid) {
-        a.x = rand() % grid_w;
-        a.y = rand() % grid_h;
+        a.pos.x = rand() % grid_w;
+        a.pos.y = rand() % grid_h;
         valid = true;
-        // Kollision mit der Schlange prüfen
-        for (const auto& segment : snake) {
-            if (segment.x == a.x && segment.y == a.y) {
-                valid = false; break;
-            }
-        }
-        // Kollision mit anderen Äpfeln prüfen
-        for (const auto& ap : apples) {
-             if(ap.x == a.x && ap.y == a.y) {
-                 valid = false; break;
-             }
-        }
+        for (const auto& segment : snake) if (segment.x == a.pos.x && segment.y == a.pos.y) valid = false;
+        for (const auto& ap : apples) if(ap.pos.x == a.pos.x && ap.pos.y == a.pos.y) valid = false;
     }
+    // 15% Chance für einen goldenen Apfel
+    a.gold = (rand() % 100 < 15);
     apples.push_back(a);
 }
 
@@ -223,38 +187,27 @@ void resetGame() {
     score = 0;
     current_dir = DIR_RIGHT;
     next_dir = DIR_RIGHT;
-    frame_count = 0;
+    last_move_dir = DIR_RIGHT;
+    tick_timer = 0;
 
-    // Grid basierend auf Einstellung
-    if (current_size == SIZE_SMALL) {
-        grid_w = 20; grid_h = 12;
-    } else if (current_size == SIZE_MEDIUM) {
-        grid_w = 30; grid_h = 18;
-    } else {
-        grid_w = 40; grid_h = 24;
-    }
+    if (current_size == SIZE_SMALL) { grid_w = 20; grid_h = 12; } 
+    else if (current_size == SIZE_MEDIUM) { grid_w = 30; grid_h = 18; } 
+    else { grid_w = 40; grid_h = 24; }
     
-    // Zentrieren auf dem 400x240 Top Screen (Tiles = 10x10 px)
     offset_x = (TOP_WIDTH - (grid_w * 10)) / 2;
     offset_y = (TOP_HEIGHT - (grid_h * 10)) / 2;
 
-    // Startposition der Schlange
     snake.push_back({grid_w / 2, grid_h / 2});
     snake.push_back({grid_w / 2 - 1, grid_h / 2});
     snake.push_back({grid_w / 2 - 2, grid_h / 2});
 
-    for (int i = 0; i < apple_count; i++) {
-        spawnApple();
-    }
+    for (int i = 0; i < apple_count; i++) spawnApple();
 }
 
 int main(int argc, char **argv) {
-    // Initialisiere die Grafik
     gfxInitDefault();
     gfxSetDoubleBuffering(GFX_TOP, true);
     gfxSetDoubleBuffering(GFX_BOTTOM, true);
-    
-    // Audio initialisieren, auch wenn nur Volume angepasst wird
     Result ndspRes = ndspInit();
     
     loadHighscore();
@@ -263,11 +216,13 @@ int main(int argc, char **argv) {
 
     GameState state = STATE_MAIN_MENU;
     
-    // Farben Definitionen
+    // Farben
     Color col_black = {0, 0, 0};
     Color col_white = {255, 255, 255};
     Color col_green = {0, 255, 0};
+    Color col_darkgreen = {0, 150, 0};
     Color col_red   = {255, 0, 0};
+    Color col_gold  = {255, 215, 0};
     Color col_gray  = {100, 100, 100};
     Color col_darkgray = {40, 40, 40};
 
@@ -275,35 +230,26 @@ int main(int argc, char **argv) {
     Button btn_start = {60, 40, 200, 40, "Start"};
     Button btn_settings = {60, 100, 200, 40, "Settings"};
     Button btn_quit = {60, 160, 200, 40, "Quit"};
-
-    // Game Over Buttons
     Button btn_retry = {60, 60, 200, 40, "Retry"};
     Button btn_menu = {60, 140, 200, 40, "Main Menu"};
-
-    // Settings Buttons
     Button btn_white_mode = {60, 140, 200, 40, "White Mode"};
     Button btn_vol_down = {60, 190, 50, 30, "-"};
     Button btn_vol_up = {210, 190, 50, 30, "+"};
     Button btn_back = {10, 10, 80, 30, "Back"};
 
-    // Config Buttons
     Button btn_sz_s = {20, 20, 80, 30, "Small"};
     Button btn_sz_m = {110, 20, 80, 30, "Medium"};
     Button btn_sz_l = {200, 20, 80, 30, "Large"};
-
     Button btn_ap_1 = {20, 70, 50, 30, "1"};
     Button btn_ap_3 = {80, 70, 50, 30, "3"};
     Button btn_ap_5 = {140, 70, 50, 30, "5"};
     Button btn_ap_c_m = {200, 70, 30, 30, "-"};
     Button btn_ap_c_p = {260, 70, 30, 30, "+"};
-
     Button btn_sp_05 = {20, 120, 80, 30, "0.5x"};
     Button btn_sp_1 = {110, 120, 80, 30, "1.0x"};
     Button btn_sp_2 = {200, 120, 80, 30, "2.0x"};
-    
     Button btn_play = {110, 180, 100, 40, "PLAY"};
 
-    // Touch-Steuerung In-Game
     Button btn_up = {130, 30, 60, 60, "^"};
     Button btn_down = {130, 150, 60, 60, "v"};
     Button btn_left = {50, 90, 60, 60, "<"};
@@ -312,28 +258,26 @@ int main(int argc, char **argv) {
     while (aptMainLoop()) {
         hidScanInput();
         u32 kDown = hidKeysDown();
-        u32 kHeld = hidKeysHeld();
         touchPosition touch;
+        if (kDown & KEY_TOUCH) hidTouchRead(&touch);
         
-        if (kDown & KEY_TOUCH) {
-            hidTouchRead(&touch);
-        }
+        global_frame++; // Für Animationen (Rainbow)
 
-        // Hardware-Tasten (D-Pad, Circle Pad) Steuerung
+        // Physische Steuerung (kDown statt kHeld, um Mehrfacheingaben zu verhindern)
         if (state == STATE_PLAYING) {
             circlePosition cpos;
             hidCircleRead(&cpos);
-            if ((kHeld & KEY_DUP) || cpos.dy > 50) { if (current_dir != DIR_DOWN) next_dir = DIR_UP; }
-            else if ((kHeld & KEY_DDOWN) || cpos.dy < -50) { if (current_dir != DIR_UP) next_dir = DIR_DOWN; }
-            else if ((kHeld & KEY_DLEFT) || cpos.dx < -50) { if (current_dir != DIR_RIGHT) next_dir = DIR_LEFT; }
-            else if ((kHeld & KEY_DRIGHT) || cpos.dx > 50) { if (current_dir != DIR_LEFT) next_dir = DIR_RIGHT; }
+            if ((kDown & KEY_DUP) || cpos.dy > 50) { if (last_move_dir != DIR_DOWN) next_dir = DIR_UP; }
+            else if ((kDown & KEY_DDOWN) || cpos.dy < -50) { if (last_move_dir != DIR_UP) next_dir = DIR_DOWN; }
+            else if ((kDown & KEY_DLEFT) || cpos.dx < -50) { if (last_move_dir != DIR_RIGHT) next_dir = DIR_LEFT; }
+            else if ((kDown & KEY_DRIGHT) || cpos.dx > 50) { if (last_move_dir != DIR_LEFT) next_dir = DIR_RIGHT; }
         }
 
         if (state == STATE_MAIN_MENU) {
             if (kDown & KEY_TOUCH) {
                 if (btn_start.isClicked(touch)) state = STATE_CONFIG;
                 if (btn_settings.isClicked(touch)) state = STATE_SETTINGS;
-                if (btn_quit.isClicked(touch)) break; // Beendet das Spiel
+                if (btn_quit.isClicked(touch)) break; 
             }
         } 
         else if (state == STATE_SETTINGS) {
@@ -361,27 +305,24 @@ int main(int argc, char **argv) {
                 if (btn_sp_1.isClicked(touch)) speed_multiplier = 1;
                 if (btn_sp_2.isClicked(touch)) speed_multiplier = 2;
 
-                if (btn_play.isClicked(touch)) {
-                    resetGame();
-                    state = STATE_PLAYING;
-                }
+                if (btn_play.isClicked(touch)) { resetGame(); state = STATE_PLAYING; }
             }
         }
         else if (state == STATE_PLAYING) {
             if (kDown & KEY_TOUCH) {
-                if (btn_up.isClicked(touch) && current_dir != DIR_DOWN) next_dir = DIR_UP;
-                if (btn_down.isClicked(touch) && current_dir != DIR_UP) next_dir = DIR_DOWN;
-                if (btn_left.isClicked(touch) && current_dir != DIR_RIGHT) next_dir = DIR_LEFT;
-                if (btn_right.isClicked(touch) && current_dir != DIR_LEFT) next_dir = DIR_RIGHT;
+                if (btn_up.isClicked(touch) && last_move_dir != DIR_DOWN) next_dir = DIR_UP;
+                if (btn_down.isClicked(touch) && last_move_dir != DIR_UP) next_dir = DIR_DOWN;
+                if (btn_left.isClicked(touch) && last_move_dir != DIR_RIGHT) next_dir = DIR_LEFT;
+                if (btn_right.isClicked(touch) && last_move_dir != DIR_LEFT) next_dir = DIR_RIGHT;
             }
 
-            // Geschwindigkeit regulieren (0.5x=20 frames, 1x=10 frames, 2x=5 frames)
             int move_delay = (speed_multiplier == 0) ? 20 : ((speed_multiplier == 1) ? 10 : 5);
-            frame_count++;
+            tick_timer++;
 
-            if (frame_count >= move_delay) {
-                frame_count = 0;
+            if (tick_timer >= move_delay) {
+                tick_timer = 0;
                 current_dir = next_dir;
+                last_move_dir = current_dir; // Sperrt 180 Grad Drehungen bis zum nächsten Tick
                 
                 Point head = snake.front();
                 Point new_head = head;
@@ -391,7 +332,6 @@ int main(int argc, char **argv) {
                 if (current_dir == DIR_LEFT) new_head.x--;
                 if (current_dir == DIR_RIGHT) new_head.x++;
 
-                // Kollisionen prüfen
                 bool dead = false;
                 if (new_head.x < 0 || new_head.x >= grid_w || new_head.y < 0 || new_head.y >= grid_h) dead = true;
                 for (const auto& segment : snake) {
@@ -399,40 +339,29 @@ int main(int argc, char **argv) {
                 }
 
                 if (dead) {
-                    if (score > highscore) {
-                        highscore = score;
-                        saveHighscore();
-                    }
+                    if (score > highscore) { highscore = score; saveHighscore(); }
                     state = STATE_GAME_OVER;
                 } else {
                     snake.insert(snake.begin(), new_head);
-                    
-                    // Apfel gefressen?
                     bool ate = false;
+                    
                     for (size_t i = 0; i < apples.size(); i++) {
-                        if (apples[i].x == new_head.x && apples[i].y == new_head.y) {
+                        if (apples[i].pos.x == new_head.x && apples[i].pos.y == new_head.y) {
                             ate = true;
+                            score += apples[i].gold ? 50 : 10;
                             apples.erase(apples.begin() + i);
-                            score += 10;
                             spawnApple();
                             break;
                         }
                     }
-                    if (!ate) {
-                        snake.pop_back(); // Kein Apfel -> Schwanz nachziehen
-                    }
+                    if (!ate) snake.pop_back(); 
                 }
             }
         }
         else if (state == STATE_GAME_OVER) {
             if (kDown & KEY_TOUCH) {
-                if (btn_retry.isClicked(touch)) {
-                    resetGame();
-                    state = STATE_PLAYING;
-                }
-                if (btn_menu.isClicked(touch)) {
-                    state = STATE_MAIN_MENU;
-                }
+                if (btn_retry.isClicked(touch)) { resetGame(); state = STATE_PLAYING; }
+                if (btn_menu.isClicked(touch)) state = STATE_MAIN_MENU;
             }
         }
 
@@ -447,39 +376,30 @@ int main(int argc, char **argv) {
         clearScreen(bot_fb, BOT_WIDTH, BOT_HEIGHT, bg);
 
         if (state == STATE_MAIN_MENU) {
-            // Top Screen Menu
-            drawString(top_fb, 140, 80, "S N A K E", 3, TOP_WIDTH, TOP_HEIGHT, fg);
-            char hs_text[32];
-            sprintf(hs_text, "Highscore: %d", highscore);
+            // Animierter Rainbow Titel
+            drawString(top_fb, 140, 80, "S N A K E", 3, TOP_WIDTH, TOP_HEIGHT, getRainbow(global_frame));
+            char hs_text[32]; sprintf(hs_text, "Highscore: %d", highscore);
             drawString(top_fb, 140, 10, hs_text, 2, TOP_WIDTH, TOP_HEIGHT, fg);
             
-            // Bottom Screen Menu
             btn_start.draw(bot_fb, fg, btn_bg, fg);
             btn_settings.draw(bot_fb, fg, btn_bg, fg);
             btn_quit.draw(bot_fb, fg, btn_bg, fg);
         }
         else if (state == STATE_SETTINGS) {
-            // Top Screen (Controls)
             drawString(top_fb, 20, 20, "CONTROLS:", 2, TOP_WIDTH, TOP_HEIGHT, fg);
             drawString(top_fb, 20, 60, "- Touch Arrows on bottom screen", 2, TOP_WIDTH, TOP_HEIGHT, fg);
             drawString(top_fb, 20, 100, "- D-Pad", 2, TOP_WIDTH, TOP_HEIGHT, fg);
             drawString(top_fb, 20, 140, "- Circle Pad", 2, TOP_WIDTH, TOP_HEIGHT, fg);
             
-            // Bottom Screen
             btn_back.draw(bot_fb, fg, btn_bg, fg);
             btn_white_mode.draw(bot_fb, fg, btn_bg, fg);
-            
-            char vol_text[32];
-            sprintf(vol_text, "Volume: %d%%", volume);
+            char vol_text[32]; sprintf(vol_text, "Volume: %d%%", volume);
             drawString(bot_fb, 115, 200, vol_text, 2, BOT_WIDTH, BOT_HEIGHT, fg);
             btn_vol_down.draw(bot_fb, fg, btn_bg, fg);
             btn_vol_up.draw(bot_fb, fg, btn_bg, fg);
         }
         else if (state == STATE_CONFIG) {
-            // Top Screen (Information)
             drawString(top_fb, 120, 100, "Setup Game", 3, TOP_WIDTH, TOP_HEIGHT, fg);
-            
-            // Bottom Screen
             btn_back.draw(bot_fb, fg, btn_bg, fg);
             
             drawString(bot_fb, 20, 5, "Size:", 1, BOT_WIDTH, BOT_HEIGHT, fg);
@@ -504,38 +424,33 @@ int main(int argc, char **argv) {
             btn_play.draw(bot_fb, fg, btn_bg, fg);
         }
         else if (state == STATE_PLAYING) {
-            // Top Screen (Game)
-            char sc_text[32];
-            sprintf(sc_text, "Score: %d  High: %d", score, highscore);
+            char sc_text[32]; sprintf(sc_text, "Score: %d  High: %d", score, highscore);
             drawString(top_fb, 10, 5, sc_text, 1, TOP_WIDTH, TOP_HEIGHT, fg);
-
-            // Spielfeld-Rand
             drawRect(top_fb, offset_x-1, offset_y-1, grid_w*10+2, grid_h*10+2, TOP_WIDTH, TOP_HEIGHT, fg);
             
-            // Äpfel
+            // Äpfel zeichnen (mit Rahmen!)
             for (const auto& a : apples) {
-                fillRect(top_fb, offset_x + a.x*10, offset_y + a.y*10, 10, 10, TOP_WIDTH, TOP_HEIGHT, col_red);
+                Color apple_col = a.gold ? col_gold : col_red;
+                fillRect(top_fb, offset_x + a.pos.x*10, offset_y + a.pos.y*10, 10, 10, TOP_WIDTH, TOP_HEIGHT, apple_col);
+                drawRect(top_fb, offset_x + a.pos.x*10, offset_y + a.pos.y*10, 10, 10, TOP_WIDTH, TOP_HEIGHT, col_black);
             }
-            // Schlange
-            for (const auto& s : snake) {
-                fillRect(top_fb, offset_x + s.x*10, offset_y + s.y*10, 10, 10, TOP_WIDTH, TOP_HEIGHT, col_green);
-                drawRect(top_fb, offset_x + s.x*10, offset_y + s.y*10, 10, 10, TOP_WIDTH, TOP_HEIGHT, col_black);
+            
+            // Schlange zeichnen (Kopf ist dunkler)
+            for (size_t i = 0; i < snake.size(); i++) {
+                Color segment_col = (i == 0) ? col_darkgreen : col_green;
+                fillRect(top_fb, offset_x + snake[i].x*10, offset_y + snake[i].y*10, 10, 10, TOP_WIDTH, TOP_HEIGHT, segment_col);
+                drawRect(top_fb, offset_x + snake[i].x*10, offset_y + snake[i].y*10, 10, 10, TOP_WIDTH, TOP_HEIGHT, col_black);
             }
 
-            // Bottom Screen (Controls)
             btn_up.draw(bot_fb, fg, btn_bg, fg);
             btn_down.draw(bot_fb, fg, btn_bg, fg);
             btn_left.draw(bot_fb, fg, btn_bg, fg);
             btn_right.draw(bot_fb, fg, btn_bg, fg);
         }
         else if (state == STATE_GAME_OVER) {
-            // Top Screen
             drawString(top_fb, 110, 80, "GAME OVER", 4, TOP_WIDTH, TOP_HEIGHT, fg);
-            char go_sc[32];
-            sprintf(go_sc, "Score: %d", score);
+            char go_sc[32]; sprintf(go_sc, "Score: %d", score);
             drawString(top_fb, 150, 140, go_sc, 2, TOP_WIDTH, TOP_HEIGHT, fg);
-
-            // Bottom Screen
             btn_retry.draw(bot_fb, fg, btn_bg, fg);
             btn_menu.draw(bot_fb, fg, btn_bg, fg);
         }
@@ -545,7 +460,6 @@ int main(int argc, char **argv) {
         gspWaitForVBlank();
     }
 
-    // Aufräumen und Verlassen
     if (ndspRes == 0) ndspExit();
     gfxExit();
     return 0;
