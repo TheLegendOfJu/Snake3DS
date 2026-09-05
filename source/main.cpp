@@ -1952,169 +1952,59 @@ void handleMainMenuInput(u32 kDown, const touchPosition& touch, GameState& state
     if (BTN_QUIT.isClicked(touch))
     {
         exit_requested = true;
-        return;
     }
 }
 
-void resetAllSettings()
+void handleSettingsInput(u32 kDown, u32 kHeld, const touchPosition& touch, GameState& state)
 {
-    white_mode = false;
-    sfx_enabled = true;
-    wrap_walls = false;
-    show_grid = true;
-    volume = 50;
-    snake_color_index = 0;
-    current_size = SIZE_MEDIUM;
-    apple_count = 3;
-    speed_multiplier = 1;
-    game_mode = MODE_CLASSIC;
-    difficulty = DIFF_NORMAL;
-    obstacles_enabled = false;
-    bonus_enabled = true;
-    acceleration_enabled = true;
-    lives_setting = 1;
-    score_multiplier = 1;
-    start_length = 3;
-    time_limit = 60;
-    custom_r = 80;
-    custom_g = 220;
-    custom_b = 120;
-    use_custom_color = false;
-    show_hud = true;
-    no_reverse = true;
-    screen_flash = true;
-    applyVolume();
-    saveSettings();
-}
+    if (settings_page == 2)
+        updateSettingsSliders(touch, (kHeld & KEY_TOUCH) != 0);
 
-void handleSettingsInput(u32 kDown, const touchPosition& touch, GameState& state)
-{
     if (!(kDown & KEY_TOUCH))
         return;
 
-    if ((settings_page == 2 && BTN_COLOR_BACK.isClicked(touch)) ||
-        (settings_page != 2 && BTN_BACK.isClicked(touch)))
-    {
-        state = STATE_MAIN_MENU;
-        return;
-    }
-
-    if ((settings_page == 2 && BTN_COLOR_NEXT.isClicked(touch)) ||
-        (settings_page != 2 && BTN_SETTINGS_NAV.isClicked(touch)))
-    {
-        settings_page = (settings_page + 1) % 4;
-        return;
-    }
-
     if (settings_page == 0)
     {
-        if (BTN_THEME.isClicked(touch))
-        {
-            white_mode = !white_mode;
-            saveSettings();
-            return;
-        }
-
-        if (BTN_SFX.isClicked(touch))
-        {
-            sfx_enabled = !sfx_enabled;
-            saveSettings();
-            return;
-        }
-
-        if (BTN_VOL_DOWN.isClicked(touch))
-        {
-            volume -= 10;
-            if (volume < 0) volume = 0;
-            applyVolume();
-            saveSettings();
-            return;
-        }
-
-        if (BTN_VOL_UP.isClicked(touch))
-        {
-            volume += 10;
-            if (volume > 100) volume = 100;
-            applyVolume();
-            saveSettings();
-            return;
-        }
+        if (BTN_THEME.isClicked(touch)) white_mode = !white_mode;
+        if (BTN_SFX.isClicked(touch)) sfx_enabled = !sfx_enabled;
+        if (BTN_VOL_DOWN.isClicked(touch)) { volume -= 5; applyVolume(); }
+        if (BTN_VOL_UP.isClicked(touch)) { volume += 5; applyVolume(); }
+        if (BTN_BACK.isClicked(touch)) { saveSettings(); state = STATE_MAIN_MENU; }
+        if (BTN_SETTINGS_NAV.isClicked(touch)) settings_page = 1;
     }
     else if (settings_page == 1)
     {
-        if (BTN_WRAP.isClicked(touch))
-        {
-            wrap_walls = !wrap_walls;
-            saveSettings();
-            return;
+        if (BTN_WRAP.isClicked(touch)) wrap_walls = !wrap_walls;
+        if (BTN_GRID.isClicked(touch)) show_grid = !show_grid;
+        if (BTN_COLOR.isClicked(touch)) {
+            if (!use_custom_color) {
+                snake_color_index = (snake_color_index + 1) % SNAKE_COLOR_COUNT;
+            }
         }
-
-        if (BTN_GRID.isClicked(touch))
-        {
-            show_grid = !show_grid;
-            saveSettings();
-            return;
-        }
-
-        if (BTN_COLOR.isClicked(touch))
-        {
-            settings_page = 2;
-            return;
-        }
-
-        if (BTN_RESET_HS.isClicked(touch))
-        {
-            highscore = 0;
-            saveHighscore();
-            return;
-        }
+        if (BTN_RESET_HS.isClicked(touch)) { highscore = 0; saveHighscore(); }
+        if (BTN_BACK.isClicked(touch)) settings_page = 0;
+        if (BTN_SETTINGS_NAV.isClicked(touch)) settings_page = 2;
     }
     else if (settings_page == 2)
     {
-        if (BTN_CUSTOM_COLOR.isClicked(touch))
-        {
-            use_custom_color = !use_custom_color;
-            saveSettings();
-            return;
-        }
-
-        if (BTN_RESET_COLOR.isClicked(touch))
-        {
-            custom_r = 80;
-            custom_g = 220;
-            custom_b = 120;
-            saveSettings();
-            return;
-        }
+        if (BTN_CUSTOM_COLOR.isClicked(touch)) use_custom_color = !use_custom_color;
+        if (BTN_RESET_COLOR.isClicked(touch)) { custom_r = 80; custom_g = 220; custom_b = 120; }
+        if (BTN_COLOR_BACK.isClicked(touch)) settings_page = 1;
+        if (BTN_COLOR_NEXT.isClicked(touch)) settings_page = 3;
     }
-    else
+    else if (settings_page == 3)
     {
-        if (BTN_HUD.isClicked(touch))
-        {
-            show_hud = !show_hud;
-            saveSettings();
-            return;
+        if (BTN_HUD.isClicked(touch)) show_hud = !show_hud;
+        if (BTN_REVERSE.isClicked(touch)) no_reverse = !no_reverse;
+        if (BTN_FLASH.isClicked(touch)) screen_flash = !screen_flash;
+        if (BTN_RESET_SETTINGS.isClicked(touch)) {
+            white_mode = false; sfx_enabled = true; volume = 50;
+            wrap_walls = false; show_grid = true; snake_color_index = 0;
+            use_custom_color = false; show_hud = true; no_reverse = true; screen_flash = true;
+            applyVolume();
         }
-
-        if (BTN_REVERSE.isClicked(touch))
-        {
-            no_reverse = !no_reverse;
-            saveSettings();
-            return;
-        }
-
-        if (BTN_FLASH.isClicked(touch))
-        {
-            screen_flash = !screen_flash;
-            saveSettings();
-            return;
-        }
-
-        if (BTN_RESET_SETTINGS.isClicked(touch))
-        {
-            resetAllSettings();
-            return;
-        }
+        if (BTN_BACK.isClicked(touch)) settings_page = 2;
+        if (BTN_SETTINGS_NAV.isClicked(touch)) { saveSettings(); state = STATE_MAIN_MENU; }
     }
 }
 
@@ -2125,384 +2015,185 @@ void handleConfigInput(u32 kDown, const touchPosition& touch, GameState& state)
 
     if (config_page == 0)
     {
-        if (BTN_SIZE_S.isClicked(touch))
-        {
-            current_size = SIZE_SMALL;
-            saveSettings();
-            return;
-        }
-        if (BTN_SIZE_M.isClicked(touch))
-        {
-            current_size = SIZE_MEDIUM;
-            saveSettings();
-            return;
-        }
-        if (BTN_SIZE_L.isClicked(touch))
-        {
-            current_size = SIZE_LARGE;
-            saveSettings();
-            return;
-        }
-        if (BTN_APPLE_1.isClicked(touch))
-        {
-            apple_count = 1;
-            saveSettings();
-            return;
-        }
-        if (BTN_APPLE_3.isClicked(touch))
-        {
-            apple_count = 3;
-            saveSettings();
-            return;
-        }
-        if (BTN_APPLE_5.isClicked(touch))
-        {
-            apple_count = 5;
-            saveSettings();
-            return;
-        }
-        if (BTN_APPLE_M.isClicked(touch))
-        {
-            --apple_count;
-            if (apple_count < 1) apple_count = 1;
-            saveSettings();
-            return;
-        }
-        if (BTN_APPLE_P.isClicked(touch))
-        {
-            ++apple_count;
-            if (apple_count > MAX_APPLES) apple_count = MAX_APPLES;
-            saveSettings();
-            return;
-        }
-        if (BTN_LENGTH_DOWN.isClicked(touch))
-        {
-            --start_length;
-            if (start_length < 3) start_length = 3;
-            saveSettings();
-            return;
-        }
-        if (BTN_LENGTH_UP.isClicked(touch))
-        {
-            ++start_length;
-            if (start_length > 10) start_length = 10;
-            saveSettings();
-            return;
-        }
-        if (BTN_CONFIG_NEXT.isClicked(touch))
-        {
-            config_page = 1;
-            return;
-        }
+        if (BTN_SIZE_S.isClicked(touch)) current_size = SIZE_SMALL;
+        if (BTN_SIZE_M.isClicked(touch)) current_size = SIZE_MEDIUM;
+        if (BTN_SIZE_L.isClicked(touch)) current_size = SIZE_LARGE;
+
+        if (BTN_APPLE_1.isClicked(touch)) apple_count = 1;
+        if (BTN_APPLE_3.isClicked(touch)) apple_count = 3;
+        if (BTN_APPLE_5.isClicked(touch)) apple_count = 5;
+        if (BTN_APPLE_M.isClicked(touch)) apple_count = std::max(1, apple_count - 1);
+        if (BTN_APPLE_P.isClicked(touch)) apple_count = std::min(MAX_APPLES, apple_count + 1);
+
+        if (BTN_LENGTH_DOWN.isClicked(touch)) start_length = std::max(3, start_length - 1);
+        if (BTN_LENGTH_UP.isClicked(touch)) start_length = std::min(10, start_length + 1);
+
+        if (BTN_CONFIG_NEXT.isClicked(touch)) config_page = 1;
     }
     else if (config_page == 1)
     {
-        if (BTN_CONFIG_PREV.isClicked(touch))
-        {
-            config_page = 0;
-            return;
-        }
-        if (BTN_CONFIG_NEXT.isClicked(touch))
-        {
-            config_page = 2;
-            return;
-        }
-        if (BTN_SPEED_05.isClicked(touch))
-        {
-            speed_multiplier = 0;
-            saveSettings();
-            return;
-        }
-        if (BTN_SPEED_1.isClicked(touch))
-        {
-            speed_multiplier = 1;
-            saveSettings();
-            return;
-        }
-        if (BTN_SPEED_2.isClicked(touch))
-        {
-            speed_multiplier = 2;
-            saveSettings();
-            return;
-        }
-        if (BTN_DIFF.isClicked(touch))
-        {
-            difficulty = (Difficulty)((difficulty + 1) % 4);
-            saveSettings();
-            return;
-        }
-        if (BTN_ACCEL.isClicked(touch))
-        {
-            acceleration_enabled = !acceleration_enabled;
-            saveSettings();
-            return;
-        }
+        if (BTN_SPEED_05.isClicked(touch)) speed_multiplier = 0;
+        if (BTN_SPEED_1.isClicked(touch)) speed_multiplier = 1;
+        if (BTN_SPEED_2.isClicked(touch)) speed_multiplier = 2;
+
+        if (BTN_DIFF.isClicked(touch)) difficulty = (Difficulty)((difficulty + 1) % 4);
+        if (BTN_ACCEL.isClicked(touch)) acceleration_enabled = !acceleration_enabled;
+
+        if (BTN_CONFIG_PREV.isClicked(touch)) config_page = 0;
+        if (BTN_CONFIG_NEXT.isClicked(touch)) config_page = 2;
     }
-    else
+    else if (config_page == 2)
     {
-        if (BTN_CONFIG_PREV.isClicked(touch))
-        {
-            config_page = 1;
-            return;
-        }
-        if (BTN_MODE.isClicked(touch))
-        {
-            game_mode = (GameMode)((game_mode + 1) % 3);
-            saveSettings();
-            return;
-        }
-        if (BTN_OBSTACLE.isClicked(touch))
-        {
-            obstacles_enabled = !obstacles_enabled;
-            saveSettings();
-            return;
-        }
-        if (BTN_BONUS.isClicked(touch))
-        {
-            bonus_enabled = !bonus_enabled;
-            saveSettings();
-            return;
-        }
-        if (BTN_LIFE_DOWN.isClicked(touch))
-        {
-            --lives_setting;
-            if (lives_setting < 1) lives_setting = 1;
-            saveSettings();
-            return;
-        }
-        if (BTN_LIFE_UP.isClicked(touch))
-        {
-            ++lives_setting;
-            if (lives_setting > 5) lives_setting = 5;
-            saveSettings();
-            return;
-        }
-        if (BTN_MULT.isClicked(touch))
-        {
-            wrap_walls = !wrap_walls;
-            saveSettings();
-            return;
-        }
+        if (BTN_MODE.isClicked(touch)) game_mode = (GameMode)((game_mode + 1) % 3);
+        if (BTN_OBSTACLE.isClicked(touch)) obstacles_enabled = !obstacles_enabled;
+        if (BTN_BONUS.isClicked(touch)) bonus_enabled = !bonus_enabled;
+        
+        if (BTN_LIFE_DOWN.isClicked(touch)) lives_setting = std::max(1, lives_setting - 1);
+        if (BTN_LIFE_UP.isClicked(touch)) lives_setting = std::min(5, lives_setting + 1);
+        
+        if (BTN_MULT.isClicked(touch)) wrap_walls = !wrap_walls;
+
+        if (BTN_CONFIG_PREV.isClicked(touch)) config_page = 1;
         if (BTN_PLAY.isClicked(touch))
         {
+            saveSettings();
             resetGame();
             state = STATE_PLAYING;
-            return;
         }
     }
 }
 
-void handlePlayingInput(u32 kDown, const touchPosition& touch, bool hasTouch)
+void handlePlayingInput(u32 kDown, const touchPosition& touch)
 {
-    if (kDown & KEY_START)
+    if (kDown & KEY_TOUCH)
     {
-        game_paused = !game_paused;
-        return;
-    }
-
-    if (!hasTouch)
-        return;
-
-    if (BTN_PAUSE.isClicked(touch))
-    {
-        game_paused = !game_paused;
-        return;
-    }
-
-    if (BTN_UP.isClicked(touch))
-    {
-        requestDirection(DIR_UP);
-        return;
-    }
-
-    if (BTN_DOWN.isClicked(touch))
-    {
-        requestDirection(DIR_DOWN);
-        return;
-    }
-
-    if (BTN_LEFT.isClicked(touch))
-    {
-        requestDirection(DIR_LEFT);
-        return;
-    }
-
-    if (BTN_RIGHT.isClicked(touch))
-    {
-        requestDirection(DIR_RIGHT);
-        return;
+        if (BTN_PAUSE.isClicked(touch))
+            game_paused = !game_paused;
+        else if (!game_paused)
+        {
+            if (BTN_UP.isClicked(touch)) requestDirection(DIR_UP);
+            if (BTN_DOWN.isClicked(touch)) requestDirection(DIR_DOWN);
+            if (BTN_LEFT.isClicked(touch)) requestDirection(DIR_LEFT);
+            if (BTN_RIGHT.isClicked(touch)) requestDirection(DIR_RIGHT);
+        }
     }
 }
 
 void handleGameOverInput(u32 kDown, const touchPosition& touch, GameState& state)
 {
-    if (!(kDown & KEY_TOUCH))
-        return;
-
-    if (BTN_RETRY.isClicked(touch))
+    if (kDown & KEY_TOUCH)
     {
-        resetGame();
-        state = STATE_PLAYING;
-        return;
-    }
-
-    if (BTN_MENU.isClicked(touch))
-    {
-        state = STATE_MAIN_MENU;
-        return;
+        if (BTN_RETRY.isClicked(touch))
+        {
+            resetGame();
+            state = STATE_PLAYING;
+        }
+        if (BTN_MENU.isClicked(touch))
+        {
+            state = STATE_MAIN_MENU;
+        }
     }
 }
 
-void checkHighscore()
+int main(int argc, char **argv)
 {
-    if (score > highscore)
-    {
-        highscore = score;
-        saveHighscore();
-    }
-}
-
-int main(int argc, char** argv)
-{
-    (void)argc;
-    (void)argv;
-
+    // Hardware und Libs initialisieren
     gfxInitDefault();
-    gfxSetDoubleBuffering(GFX_TOP, true);
-    gfxSetDoubleBuffering(GFX_BOTTOM, true);
-
-    Result ndspRes = ndspInit();
-
-    loadHighscore();
+    bool ndspOk = R_SUCCEEDED(ndspInit());
+    
+    // Daten initialisieren
+    initAudio(ndspOk);
     loadSettings();
+    loadHighscore();
     applyVolume();
-    initAudio(ndspRes == 0);
 
-    srand((unsigned int)(time(NULL) ^ osGetTime()));
+    GameState currentState = STATE_MAIN_MENU;
+    u64 lastTick = osGetTime();
 
-    GameState state = STATE_MAIN_MENU;
-    global_frame = 0;
-    last_tick_ms = osGetTime();
-
+    // Main Loop
     while (aptMainLoop())
     {
         hidScanInput();
-
         u32 kDown = hidKeysDown();
         u32 kHeld = hidKeysHeld();
-
+        touchPosition touch;
+        hidTouchRead(&touch);
         circlePosition circle;
         hidCircleRead(&circle);
 
-        touchPosition touchDown;
-        bool hasTouchDown = (kDown & KEY_TOUCH) != 0;
-        if (hasTouchDown)
-            hidTouchRead(&touchDown);
-
-        touchPosition touchNow;
-        bool touchHeld = (kHeld & KEY_TOUCH) != 0;
-        if (touchHeld)
-            hidTouchRead(&touchNow);
-        else
-        {
-            touchNow.px = 0;
-            touchNow.py = 0;
-        }
-
-        ++global_frame;
-
-        if (state == STATE_SETTINGS && touchHeld)
-        {
-            int oldR = custom_r;
-            int oldG = custom_g;
-            int oldB = custom_b;
-            updateSettingsSliders(touchNow, true);
-            if (oldR != custom_r || oldG != custom_g || oldB != custom_b)
-                saveSettings();
-        }
-
-        if (state == STATE_MAIN_MENU)
-        {
-            handleMainMenuInput(kDown, touchDown, state);
-        }
-        else if (state == STATE_SETTINGS)
-        {
-            handleSettingsInput(kDown, touchDown, state);
-        }
-        else if (state == STATE_CONFIG)
-        {
-            handleConfigInput(kDown, touchDown, state);
-        }
-        else if (state == STATE_PLAYING)
-        {
-            readPhysicalDirection(kDown, circle);
-            handlePlayingInput(kDown, touchDown, hasTouchDown);
-        }
-        else if (state == STATE_GAME_OVER)
-        {
-            handleGameOverInput(kDown, touchDown, state);
-        }
-
+        if (kDown & KEY_START)
+            break;
+            
         if (exit_requested)
             break;
 
-        unsigned int now = osGetTime();
-        unsigned int elapsed = now - last_tick_ms;
-        last_tick_ms = now;
+        u64 currentTick = osGetTime();
+        float dtMs = (float)(currentTick - lastTick);
+        lastTick = currentTick;
 
-        if (elapsed > 250)
-            elapsed = 250;
+        u8* topFb = gfxGetFramebuffer(GFX_TOP, GFX_LEFT, NULL, NULL);
+        u8* botFb = gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, NULL, NULL);
 
-        if (state == STATE_PLAYING && !game_paused)
-        {
-            if (!updateGame((float)elapsed))
-            {
-                playGameOverSound();
-                checkHighscore();
-                state = STATE_GAME_OVER;
-            }
-        }
+        clearScreen(topFb, TOP_WIDTH, TOP_HEIGHT, backgroundColor());
+        clearScreen(botFb, BOT_WIDTH, BOT_HEIGHT, backgroundColor());
 
-        u8* top_fb = gfxGetFramebuffer(GFX_TOP, GFX_LEFT, NULL, NULL);
-        u8* bot_fb = gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, NULL, NULL);
+        bool touchHeld = (kHeld & KEY_TOUCH) != 0;
 
-        clearScreen(top_fb, TOP_WIDTH, TOP_HEIGHT, backgroundColor());
-        clearScreen(bot_fb, BOT_WIDTH, BOT_HEIGHT, backgroundColor());
-
-        switch (state)
+        // Statemachine 
+        switch (currentState)
         {
             case STATE_MAIN_MENU:
-                renderMainMenu(top_fb, bot_fb, touchHeld, touchNow);
+                handleMainMenuInput(kDown, touch, currentState);
+                renderMainMenu(topFb, botFb, touchHeld, touch);
                 break;
-
+                
             case STATE_SETTINGS:
-                renderSettings(top_fb, bot_fb, touchHeld, touchNow);
+                handleSettingsInput(kDown, kHeld, touch, currentState);
+                renderSettings(topFb, botFb, touchHeld, touch);
                 break;
-
+                
             case STATE_CONFIG:
-                renderConfig(top_fb, bot_fb, touchHeld, touchNow);
+                handleConfigInput(kDown, touch, currentState);
+                renderConfig(topFb, botFb, touchHeld, touch);
                 break;
-
+                
             case STATE_PLAYING:
-                renderGame(top_fb, bot_fb, touchHeld, touchNow);
+                readPhysicalDirection(kDown, circle);
+                handlePlayingInput(kDown, touch);
+                
+                if (!game_paused) 
+                {
+                    if (!updateGame(dtMs)) 
+                    {
+                        currentState = STATE_GAME_OVER;
+                        playGameOverSound();
+                        if (score > highscore) 
+                        {
+                            highscore = score;
+                            saveHighscore();
+                        }
+                    }
+                }
+                renderGame(topFb, botFb, touchHeld, touch);
                 break;
-
+                
             case STATE_GAME_OVER:
-                renderGameOver(top_fb, bot_fb, touchHeld, touchNow);
+                handleGameOverInput(kDown, touch, currentState);
+                renderGameOver(topFb, botFb, touchHeld, touch);
                 break;
         }
 
         gfxFlushBuffers();
         gfxSwapBuffers();
         gspWaitForVBlank();
+        
+        global_frame++;
     }
 
-    checkHighscore();
+    // Aufräumen und Speichern vor dem Beenden
+    saveSettings(); 
     exitAudio();
-
-    if (ndspRes == 0)
-        ndspExit();
-
+    if (ndspOk) ndspExit();
     gfxExit();
     return 0;
 }
