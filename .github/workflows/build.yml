@@ -1,4 +1,5 @@
 name: Build 3DS Homebrew
+
 on:
   push:
     branches:
@@ -9,21 +10,31 @@ on:
       - main
       - master
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
     container: devkitpro/devkitarm:latest
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+
       - name: Install 3DS Dependencies
         run: |
           dkp-pacman -Syu --noconfirm
           dkp-pacman -S --needed --noconfirm 3ds-dev
+
       - name: Compile Project
-        run: make
+        run: |
+          make
+          echo "=== Hauptordner ==="
+          ls -la
+          echo "=== Build Ordner ==="
+          ls -la build/ || true
+
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Snake3DS-binary
-          path: Snake3DS.3dsx
+          path: "**/*.3dsx"
