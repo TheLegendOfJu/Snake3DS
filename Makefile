@@ -1,51 +1,6 @@
-#---------------------------------------------------------------------------------
-3DS Homebrew Makefile (Snake3DS)
-#---------------------------------------------------------------------------------
-ifeq ($(strip ￼(error "Please set DEVKITPRO in your environment. export DEVKITPRO=<path to>devkitpro")
-endif
-include $(DEVKITPRO)/3ds_rules
-TARGET      := Snake3DS
-BUILD       := build
-SOURCES     := source
-DATA        := data
-INCLUDES    := include
-ARCH        := -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
-CFLAGS      := -g -Wall -O2 -mword-relocations 
--fomit-frame-pointer -ffunction-sections 
-$(ARCH) -DARM11 -D_3DS
-CXXFLAGS    := $(CFLAGS) -std=gnu++17
-ASFLAGS     := -g $(ARCH)
-LDFLAGS     := -specs=3dsx.specs -g ￼(notdir ￼@)).map
-LIBS        := -lctru -lm
-ifneq (￼(notdir$(CURDIR)))
-export OUTPUT   := ￼(TARGET)
-export VPATH    := ￼(SOURCES),￼(dir))
-export DEPSDIR  := ￼(BUILD)
-CFILES      := ￼(SOURCES),￼
-￼(notdir ￼(dir)/.cpp)))
-sFILES      := ￼(SOURCES),$(notdir ￼(dir)/.s)))
-SFILES      := ￼(SOURCES),$(notdir ￼(dir)/*.S)))
-export OFILES := ￼(CFILES:.c=.o) ￼(SFILES:.S=.o)
-export INCLUDE := ￼(INCLUDES),-I$(CURDIR)/(dir)) \
-￼(CURDIR)/(dir)) \
-￼(CURDIR)/$(BUILD)
-.PHONY: clean all
-all: ￼
-￼(MAKE) --no-print-directory -C ￼(CURDIR)/Makefile
-$(BUILD):
-@mkdir -p $@
-clean:
-@echo clean ...
-@rm -rf ￼(TARGET).3dsx $(TARGET).elf $(TARGET).smdh
-else
-DEPENDS := $(OFILES:.o=.d)
-￼(OUTPUT).elf
-￼(OFILES)
-%.o: %.cpp
-@echo ￼<)
-@￼(DEPSDIR)/$*.d $(CXXFLAGS) -c ￼@
-%.o: %.c
-@echo ￼<)
-@￼(DEPSDIR)/$*.d $(CFLAGS) -c ￼@
--include $(DEPENDS)
-endif
+STREAMING_CHUNK:Checking environment variables...#---------------------------------------------------------------------------------3DS Homebrew Makefile (Snake3DS)#---------------------------------------------------------------------------------ifeq ($(strip $(DEVKITPRO)),)$(error "Please set DEVKITPRO in your environment. export DEVKITPRO=devkitpro")endifinclude $(DEVKITPRO)/3ds_rulesSTREAMING_CHUNK:Setting target and source directories...TARGET      := Snake3DSBUILD       := buildSOURCES     := sourceDATA        := dataINCLUDES    := includeARCH        := -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=softSTREAMING_CHUNK:Configuring compiler flags...CFLAGS      := -g -Wall -O2 -mword-relocations -fomit-frame-pointer -ffunction-sections $(ARCH) -DARM11 -D_3DSCXXFLAGS    := $(CFLAGS) -std=gnu++17ASFLAGS     := -g $(ARCH)LDFLAGS     := -specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $(basename$@)).mapLIBS        := -lctru -lmSTREAMING_CHUNK:Defining build rules...ifneq ($(BUILD),$(notdir$(CURDIR)))export OUTPUT   := $(CURDIR)/$(TARGET)export VPATH    := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir))export DEPSDIR  := $(CURDIR)/$(BUILD)CFILES      := $(foreach dir,$(SOURCES),$(notdir $(wildcard$(dir)/*.c)))
+CPPFILES    := $(foreach dir,$(SOURCES),$(notdir $(wildcard$(dir)/.cpp)))
+sFILES      := $(foreach dir,$(SOURCES),$(notdir $(wildcard$(dir)/.s)))SFILES      := $(foreach dir,$(SOURCES),$(notdir $(wildcard$(dir)/*.S)))export OFILES := $(CPPFILES:.cpp=.o)$(CFILES:.c=.o) $(sFILES:.s=.o)$(SFILES:.S=.o)export INCLUDE := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
+$(foreach dir,$(SOURCES),-I$(CURDIR)/$(dir)) \
+-I$(CURDIR)/$(BUILD).PHONY: clean allall: $(BUILD)
+@$(MAKE) --no-print-directory -C $(BUILD) -f$(CURDIR)/Makefile$(BUILD):@mkdir -p $@clean:@echo clean ...@rm -rf $(BUILD)$(TARGET).3dsx $(TARGET).elf $(TARGET).smdhelseSTREAMING_CHUNK:Building target objects and dependencies...DEPENDS := $(OFILES:.o=.d)$(OUTPUT).3dsx :$(OUTPUT).elf$(OUTPUT).elf  :$(OFILES)%.o: %.cpp@echo $(notdir$<)@$(CXX) -MMD -MP -MF$(DEPSDIR)/$*.d $(CXXFLAGS) -c $< -o$@%.o: %.c@echo $(notdir$<)@$(CC) -MMD -MP -MF$(DEPSDIR)/$*.d $(CFLAGS) -c $< -o$@-include $(DEPENDS)endif
