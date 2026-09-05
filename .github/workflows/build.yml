@@ -1,38 +1,26 @@
 name: Build 3DS Homebrew
-
 on:
-  push:
-    branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
-  workflow_dispatch:
-
+push:
+branches: [ "main", "master" ]
+pull_request:
+branches: [ "main", "master" ]
+workflow_dispatch:
 jobs:
-  build-3dsx:
-    runs-on: ubuntu-latest
-    container: devkitpro/devkitarm:latest
-
-    steps:
-      # Step 1: Check out the repository source code
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      # Step 2: Ensure devkitPro environment packages are fully up-to-date
-      - name: Install 3DS Dependencies
-        run: |
-          dkp-pacman -Syu --noconfirm
-          dkp-pacman -S --needed --noconfirm 3ds-dev
-
-      # Step 3: Compile the project using the root Makefile
-      - name: Compile Project
-        run: |
-          make
-
-      # Step 4: Upload the compiled .3dsx and metadata (.smdh) files
-      - name: Upload Build Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: 3ds-homebrew-binary
-          path: |
-            *.3dsx
-            *.smdh
+build-3dsx:
+runs-on: ubuntu-latest
+container: devkitpro/devkitarm:latest
+steps:
+- name: Checkout Repository
+uses: actions/checkout@v4
+- name: Install 3DS Dependencies
+run: |
+dkp-pacman -Syu --noconfirm
+dkp-pacman -S --needed --noconfirm 3ds-dev
+- name: Compile Project
+run: |
+make
+- name: Upload Build Artifacts
+uses: actions/upload-artifact@v4
+with:
+name: Snake3DS-binary
+path: Snake3DS.3dsx
