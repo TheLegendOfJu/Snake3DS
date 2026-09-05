@@ -8,39 +8,19 @@
 #include <math.h>
 #include <algorithm>
 
-// ============================================================================
-// SNAKE 3DS - REWORKED EDITION
-// ============================================================================
-// Main fixes / improvements:
-//  - safer direction queue (no accidental 180-degree turns)
-//  - tail-cell collision is handled correctly when the snake is not growing
-//  - apples are spawned with a hard attempt limit, so no infinite loop
-//  - configuration is validated before starting a game
-//  - touch buttons have cleaner hitboxes and pressed feedback
-//  - UI is redesigned for the two 3DS screens
-//  - score/highscore layout is clearer
-//  - game timing uses elapsed time instead of assuming one exact FPS
-//  - pause button / HOME-safe cleanup is handled by the normal loop
-//  - settings and configuration have explicit selected states
-//  - large boards fit the 400x240 top screen exactly
-// ============================================================================
-
 #define TOP_WIDTH       400
 #define TOP_HEIGHT      240
 #define BOT_WIDTH       320
 #define BOT_HEIGHT      240
 
-#define CELL_SMALL      10
-#define CELL_MEDIUM     10
-#define CELL_LARGE      10
-
+#define CELL_SIZE       10
 #define MAX_APPLES      50
-#define MAX_SNAKE_LEN   960
-#define FRAME_MS        16
 
-// ---------------------------------------------------------------------------
-// Game states
-// ---------------------------------------------------------------------------
+#define AUDIO_SAMPLE_RATE  22050
+#define AUDIO_MAX_SAMPLES  (AUDIO_SAMPLE_RATE / 2)
+
+#define SNAKE_TAU 6.28318530718f
+
 enum GameState
 {
     STATE_MAIN_MENU,
@@ -50,9 +30,6 @@ enum GameState
     STATE_GAME_OVER
 };
 
-// ---------------------------------------------------------------------------
-// Directions
-// ---------------------------------------------------------------------------
 enum Direction
 {
     DIR_UP,
@@ -61,9 +38,13 @@ enum Direction
     DIR_RIGHT
 };
 
-// ---------------------------------------------------------------------------
-// Basic color type
-// ---------------------------------------------------------------------------
+enum GridSize
+{
+    SIZE_SMALL,
+    SIZE_MEDIUM,
+    SIZE_LARGE
+};
+
 struct Color
 {
     u8 r;
@@ -71,14 +52,31 @@ struct Color
     u8 b;
 };
 
-static bool sameColor(const Color& a, const Color& b)
+struct Point
 {
-    return a.r == b.r && a.g == b.g && a.b == b.b;
-}
+    int x;
+    int y;
+};
 
-// ---------------------------------------------------------------------------
-// Small 8x8 ASCII font.
-// ---------------------------------------------------------------------------
+struct Button
+{
+    int x;
+    int y;
+    int w;
+    int h;
+    const char* text;
+
+    bool contains(int px, int py) const
+    {
+        return px >= x && px < x + w && py >= y && py < y + h;
+    }
+
+    bool isClicked(const touchPosition& touch) const
+    {
+        return contains(touch.px, touch.py);
+    }
+};
+
 const uint64_t font8x8[96] = {
     0x0000000000000000, 0x00183C3C18180018, 0x0066666600000000, 0x0036367F367F3636,
     0x000C1EE07C0F7830, 0x000063660C1833C6, 0x00386C6C386D663B, 0x000C181800000000,
@@ -106,77 +104,29 @@ const uint64_t font8x8[96] = {
     0x0018181818181818, 0x007018180E181870, 0x00000000324C0000
 };
 
-// ---------------------------------------------------------------------------
-// Geometry
-// ---------------------------------------------------------------------------
-struct Point
-{
-    int x;
-    int y;
-};
-
-struct Apple
-{
-    Point pos;
-    bool gold;
-};
-
-// ---------------------------------------------------------------------------
-// UI button
-// ---------------------------------------------------------------------------
-struct Button
-{
-    int x;
-    int y;
-    int w;
-    int h;
-    const char* text;
-
-    bool contains(int px, int py) const
-    {
-        return px >= x && px < x + w && py >= y && py < y + h;
-    }
-
-    bool isClicked(const touchPosition& touch) const
-    {
-        return contains(touch.px, touch.py);
-    }
-};
-
-// ---------------------------------------------------------------------------
-// Global settings
-// ---------------------------------------------------------------------------
 bool white_mode = false;
+bool sfx_enabled = true;
+bool wrap_walls = false;
+bool show_grid = true;
 int highscore = 0;
 int volume = 50;
-
-// Grid sizes are deliberately selected so 40x24 at 10px/cell exactly fills
-// the 400x240 top screen. This also fixes the large-board clipping issue.
-enum GridSize
-{
-    SIZE_SMALL,
-    SIZE_MEDIUM,
-    SIZE_LARGE
-};
+int snake_color_index = 0;
+int settings_page = 0;
 
 GridSize current_size = SIZE_MEDIUM;
 int apple_count = 3;
 int speed_multiplier = 1;
 
-// ---------------------------------------------------------------------------
-// Game variables
-// ---------------------------------------------------------------------------
 std::vector<Point> snake;
-std::vector<Apple> apples;
+std::vector<Point> apples;
 
 Direction current_dir = DIR_RIGHT;
-Direction next_dir = DIR_RIGHT;
 Direction queued_dir = DIR_RIGHT;
 
 int score = 0;
 int grid_w = 30;
 int grid_h = 18;
-int cell_size = 10;
+int cell_size = CELL_SIZE;
 int offset_x = 0;
 int offset_y = 0;
 
@@ -185,31 +135,44 @@ unsigned int last_tick_ms = 0;
 float move_accumulator = 0.0f;
 
 bool game_paused = false;
-bool touch_was_down = false;
 bool exit_requested = false;
 
-// ---------------------------------------------------------------------------
-// Palette
-// ---------------------------------------------------------------------------
 Color COL_BLACK      = {  8,   8,  12};
 Color COL_WHITE      = {248, 248, 248};
 Color COL_PANEL      = { 25,  28,  38};
-Color COL_PANEL2     = { 38,  42,  56};
 Color COL_BORDER     = { 90, 100, 125};
-Color COL_GREEN      = { 55, 220, 105};
-Color COL_GREEN_DARK = { 20, 125,  60};
-Color COL_GREEN_LITE = {130, 255, 160};
 Color COL_RED        = {240,  60,  65};
 Color COL_GOLD       = {255, 205,  45};
-Color COL_BLUE       = { 65, 140, 255};
 Color COL_GRAY       = { 90,  95, 110};
-Color COL_DARKGRAY   = { 42,  45,  55};
 Color COL_SHADOW     = {  0,   0,   0};
 Color COL_CYAN       = { 50, 220, 230};
 
-// ---------------------------------------------------------------------------
-// Framebuffer helpers
-// ---------------------------------------------------------------------------
+struct SnakeColorSet
+{
+    Color head;
+    Color body_a;
+    Color body_b;
+    const char* name;
+};
+
+const int SNAKE_COLOR_COUNT = 4;
+SnakeColorSet SNAKE_COLORS[SNAKE_COLOR_COUNT] = {
+    { {150, 255, 175}, { 55, 220, 105}, { 20, 125,  60}, "GREEN"  },
+    { {150, 200, 255}, { 70, 140, 255}, { 30,  80, 180}, "BLUE"   },
+    { {230, 170, 255}, {170,  90, 230}, {110,  40, 160}, "PURPLE" },
+    { {255, 200, 140}, {255, 140,  40}, {180,  90,  10}, "ORANGE" }
+};
+
+Color accentColor()
+{
+    return SNAKE_COLORS[snake_color_index].head;
+}
+
+s16* audio_buffer[2] = { NULL, NULL };
+ndspWaveBuf audio_wavebuf[2];
+int audio_active_buffer = 0;
+bool audio_ready = false;
+
 void drawPixel(u8* fb, int x, int y, int screen_width, int screen_height, Color c)
 {
     if (!fb) return;
@@ -285,9 +248,6 @@ void clearScreen(u8* fb, int screen_width, int screen_height, Color c)
     }
 }
 
-// ---------------------------------------------------------------------------
-// Text helpers
-// ---------------------------------------------------------------------------
 void drawChar(u8* fb, int x, int y, char c, int scale,
               int screen_width, int screen_height, Color fg)
 {
@@ -362,9 +322,6 @@ void drawCenteredShadowedText(u8* fb, int center_x, int y, const char* str,
                      screen_width, screen_height, fg);
 }
 
-// ---------------------------------------------------------------------------
-// General UI helpers
-// ---------------------------------------------------------------------------
 Color backgroundColor()
 {
     return white_mode ? COL_WHITE : COL_BLACK;
@@ -385,6 +342,11 @@ Color panelSelectedColor()
     return white_mode ? Color{190, 210, 225} : Color{55, 65, 85};
 }
 
+Color panelPressedColor()
+{
+    return white_mode ? Color{150, 175, 195} : Color{85, 100, 130};
+}
+
 Color borderColor()
 {
     return white_mode ? Color{70, 70, 80} : COL_BORDER;
@@ -398,30 +360,40 @@ void drawPanel(u8* fb, int x, int y, int w, int h,
     drawRect(fb, x, y, w, h, screen_width, screen_height, borderColor());
 }
 
-void drawButton(u8* fb, const Button& b, bool selected, bool pressed)
+void drawButtonLabeled(u8* fb, const Button& b, const char* label, bool selected, bool pressed)
 {
     Color fg = foregroundColor();
-    Color bg = selected ? panelSelectedColor() : panelColor();
+    Color bg = panelColor();
 
     if (pressed)
-    {
-        bg = white_mode ? Color{175, 195, 210} : Color{65, 75, 95};
-    }
+        bg = panelPressedColor();
+    else if (selected)
+        bg = panelSelectedColor();
 
     fillRect(fb, b.x + 2, b.y + 2, b.w, b.h,
              BOT_WIDTH, BOT_HEIGHT, COL_SHADOW);
     fillRect(fb, b.x, b.y, b.w, b.h,
              BOT_WIDTH, BOT_HEIGHT, bg);
     drawRect(fb, b.x, b.y, b.w, b.h,
-             BOT_WIDTH, BOT_HEIGHT, selected ? COL_CYAN : borderColor());
+             BOT_WIDTH, BOT_HEIGHT, (selected || pressed) ? COL_CYAN : borderColor());
 
-    int tw = textWidth(b.text, 2);
+    int tw = textWidth(label, 2);
     int tx = b.x + (b.w - tw) / 2;
     int ty = b.y + (b.h - 16) / 2;
 
     if (tx < b.x + 2) tx = b.x + 2;
-    drawString(fb, tx, ty, b.text, 2,
+    drawString(fb, tx, ty, label, 2,
                BOT_WIDTH, BOT_HEIGHT, fg);
+}
+
+void drawButton(u8* fb, const Button& b, bool selected, bool pressed)
+{
+    drawButtonLabeled(fb, b, b.text, selected, pressed);
+}
+
+bool isTouchOn(const Button& b, bool touchHeld, const touchPosition& t)
+{
+    return touchHeld && b.contains(t.px, t.py);
 }
 
 void drawTopHeader(u8* fb, const char* title, Color accent)
@@ -442,9 +414,6 @@ void drawBottomHeader(u8* fb, const char* title)
                      BOT_WIDTH, BOT_HEIGHT, foregroundColor());
 }
 
-// ---------------------------------------------------------------------------
-// Animation helpers
-// ---------------------------------------------------------------------------
 Color getRainbow(unsigned int frame)
 {
     double t = frame * 0.045;
@@ -455,9 +424,86 @@ Color getRainbow(unsigned int frame)
     return c;
 }
 
-// ---------------------------------------------------------------------------
-// Save / load
-// ---------------------------------------------------------------------------
+void initAudio(bool ndspOk)
+{
+    audio_ready = false;
+
+    if (!ndspOk)
+        return;
+
+    audio_buffer[0] = (s16*)linearAlloc(AUDIO_MAX_SAMPLES * sizeof(s16));
+    audio_buffer[1] = (s16*)linearAlloc(AUDIO_MAX_SAMPLES * sizeof(s16));
+
+    if (!audio_buffer[0] || !audio_buffer[1])
+        return;
+
+    ndspChnReset(0);
+    ndspChnSetInterp(0, NDSP_INTERP_LINEAR);
+    ndspChnSetRate(0, AUDIO_SAMPLE_RATE);
+    ndspChnSetFormat(0, NDSP_FORMAT_MONO_PCM16);
+
+    float mix[12];
+    memset(mix, 0, sizeof(mix));
+    mix[0] = 1.0f;
+    mix[1] = 1.0f;
+    ndspChnSetMix(0, mix);
+
+    audio_ready = true;
+}
+
+void exitAudio()
+{
+    if (audio_buffer[0]) linearFree(audio_buffer[0]);
+    if (audio_buffer[1]) linearFree(audio_buffer[1]);
+    audio_buffer[0] = NULL;
+    audio_buffer[1] = NULL;
+}
+
+void playTone(float frequency, int durationMs, float volumeScale)
+{
+    if (!audio_ready || !sfx_enabled)
+        return;
+
+    int samples = (AUDIO_SAMPLE_RATE * durationMs) / 1000;
+    if (samples > AUDIO_MAX_SAMPLES) samples = AUDIO_MAX_SAMPLES;
+    if (samples <= 0) return;
+
+    int bufIndex = audio_active_buffer;
+    audio_active_buffer = (audio_active_buffer + 1) % 2;
+
+    s16* buf = audio_buffer[bufIndex];
+    if (!buf) return;
+
+    float amp = 9000.0f * volumeScale;
+
+    for (int i = 0; i < samples; ++i)
+    {
+        float t = (float)i / (float)AUDIO_SAMPLE_RATE;
+        float envelope = 1.0f - ((float)i / (float)samples);
+        buf[i] = (s16)(sinf(SNAKE_TAU * frequency * t) * amp * envelope);
+    }
+
+    DSP_FlushDataCache(buf, samples * sizeof(s16));
+
+    ndspWaveBuf* wb = &audio_wavebuf[bufIndex];
+    memset(wb, 0, sizeof(ndspWaveBuf));
+    wb->data_vaddr = buf;
+    wb->nsamples = samples;
+    wb->looping = false;
+
+    ndspChnWaveBufAdd(0, wb);
+}
+
+void playEatSound()
+{
+    playTone(880.0f, 70, 0.55f);
+}
+
+void playGameOverSound()
+{
+    playTone(200.0f, 300, 0.7f);
+}
+
 void loadHighscore()
 {
     FILE* f = fopen("sdmc:/snake_highscore.txt", "r");
@@ -488,6 +534,58 @@ void saveHighscore()
     fclose(f);
 }
 
+void loadSettings()
+{
+    FILE* f = fopen("sdmc:/snake_settings.txt", "r");
+
+    if (!f)
+        return;
+
+    int wm = 0, vol = 50, sfx = 1, wrap = 0, grid = 1, color = 0;
+    int apples = 3, speed = 1, size = 1;
+
+    fscanf(f, "%d %d %d %d %d %d %d %d %d",
+           &wm, &vol, &sfx, &wrap, &grid, &color, &apples, &speed, &size);
+
+    fclose(f);
+
+    white_mode = wm != 0;
+    volume = vol;
+    sfx_enabled = sfx != 0;
+    wrap_walls = wrap != 0;
+    show_grid = grid != 0;
+    snake_color_index = color;
+    apple_count = apples;
+    speed_multiplier = speed;
+    current_size = (GridSize)size;
+
+    if (volume < 0) volume = 0;
+    if (volume > 100) volume = 100;
+    if (apple_count < 1) apple_count = 1;
+    if (apple_count > MAX_APPLES) apple_count = MAX_APPLES;
+    if (snake_color_index < 0 || snake_color_index >= SNAKE_COLOR_COUNT)
+        snake_color_index = 0;
+    if (speed_multiplier < 0 || speed_multiplier > 2)
+        speed_multiplier = 1;
+    if (current_size < SIZE_SMALL || current_size > SIZE_LARGE)
+        current_size = SIZE_MEDIUM;
+}
+
+void saveSettings()
+{
+    FILE* f = fopen("sdmc:/snake_settings.txt", "w");
+
+    if (!f)
+        return;
+
+    fprintf(f, "%d %d %d %d %d %d %d %d %d\n",
+            white_mode ? 1 : 0, volume, sfx_enabled ? 1 : 0,
+            wrap_walls ? 1 : 0, show_grid ? 1 : 0, snake_color_index,
+            apple_count, speed_multiplier, (int)current_size);
+
+    fclose(f);
+}
+
 void applyVolume()
 {
     if (volume < 0) volume = 0;
@@ -495,9 +593,6 @@ void applyVolume()
     ndspSetMasterVol(volume / 100.0f);
 }
 
-// ---------------------------------------------------------------------------
-// Grid setup
-// ---------------------------------------------------------------------------
 void calculateGrid()
 {
     switch (current_size)
@@ -505,29 +600,24 @@ void calculateGrid()
         case SIZE_SMALL:
             grid_w = 20;
             grid_h = 12;
-            cell_size = CELL_SMALL;
             break;
 
         case SIZE_MEDIUM:
             grid_w = 30;
             grid_h = 18;
-            cell_size = CELL_MEDIUM;
             break;
 
         case SIZE_LARGE:
             grid_w = 40;
             grid_h = 24;
-            cell_size = CELL_LARGE;
             break;
     }
 
+    cell_size = CELL_SIZE;
     offset_x = (TOP_WIDTH - grid_w * cell_size) / 2;
     offset_y = (TOP_HEIGHT - grid_h * cell_size) / 2;
 }
 
-// ---------------------------------------------------------------------------
-// Direction helpers
-// ---------------------------------------------------------------------------
 bool isOpposite(Direction a, Direction b)
 {
     if (a == DIR_UP && b == DIR_DOWN) return true;
@@ -537,20 +627,8 @@ bool isOpposite(Direction a, Direction b)
     return false;
 }
 
-bool isHorizontal(Direction d)
-{
-    return d == DIR_LEFT || d == DIR_RIGHT;
-}
-
-bool isVertical(Direction d)
-{
-    return d == DIR_UP || d == DIR_DOWN;
-}
-
 void requestDirection(Direction requested)
 {
-    // Always compare with the direction that will actually be used for the
-    // next move. This fixes the classic rapid-input 180-degree bug.
     if (isOpposite(requested, current_dir))
         return;
 
@@ -566,9 +644,6 @@ void commitDirection()
         current_dir = queued_dir;
 }
 
-// ---------------------------------------------------------------------------
-// Point helpers
-// ---------------------------------------------------------------------------
 bool samePoint(const Point& a, const Point& b)
 {
     return a.x == b.x && a.y == b.y;
@@ -596,16 +671,13 @@ bool pointOnApple(const Point& p)
 {
     for (size_t i = 0; i < apples.size(); ++i)
     {
-        if (samePoint(apples[i].pos, p))
+        if (samePoint(apples[i], p))
             return true;
     }
 
     return false;
 }
 
-// ---------------------------------------------------------------------------
-// Apple spawning
-// ---------------------------------------------------------------------------
 bool findFreeCell(Point& result)
 {
     const int totalCells = grid_w * grid_h;
@@ -613,7 +685,6 @@ bool findFreeCell(Point& result)
     if (totalCells <= 0)
         return false;
 
-    // Random probing is fast on normal games.
     for (int attempt = 0; attempt < 200; ++attempt)
     {
         Point p;
@@ -627,8 +698,6 @@ bool findFreeCell(Point& result)
         }
     }
 
-    // Deterministic fallback prevents an infinite loop when the board is
-    // almost completely full.
     for (int y = 0; y < grid_h; ++y)
     {
         for (int x = 0; x < grid_w; ++x)
@@ -656,10 +725,7 @@ bool spawnApple()
     if (!findFreeCell(freeCell))
         return false;
 
-    Apple a;
-    a.pos = freeCell;
-    a.gold = (rand() % 100) < 15;
-    apples.push_back(a);
+    apples.push_back(freeCell);
     return true;
 }
 
@@ -672,9 +738,6 @@ void fillApples()
     }
 }
 
-// ---------------------------------------------------------------------------
-// Game reset
-// ---------------------------------------------------------------------------
 void resetGame()
 {
     calculateGrid();
@@ -685,7 +748,6 @@ void resetGame()
     score = 0;
     current_dir = DIR_RIGHT;
     queued_dir = DIR_RIGHT;
-    next_dir = DIR_RIGHT;
 
     move_accumulator = 0.0f;
     last_tick_ms = osGetTime();
@@ -694,7 +756,6 @@ void resetGame()
     int startX = grid_w / 2;
     int startY = grid_h / 2;
 
-    // Small boards still get a stable three-segment starting snake.
     snake.push_back({startX, startY});
     snake.push_back({startX - 1, startY});
     snake.push_back({startX - 2, startY});
@@ -702,16 +763,13 @@ void resetGame()
     fillApples();
 }
 
-// ---------------------------------------------------------------------------
-// Game speed
-// ---------------------------------------------------------------------------
 float moveIntervalMs()
 {
     switch (speed_multiplier)
     {
-        case 0: return 320.0f; // 0.5x
-        case 1: return 160.0f; // 1.0x
-        case 2: return 80.0f;  // 2.0x
+        case 0: return 320.0f;
+        case 1: return 160.0f;
+        case 2: return 80.0f;
         default: return 160.0f;
     }
 }
@@ -738,9 +796,6 @@ const char* sizeLabel()
     }
 }
 
-// ---------------------------------------------------------------------------
-// Game movement
-// ---------------------------------------------------------------------------
 Point nextHeadPosition()
 {
     Point head = snake.front();
@@ -754,6 +809,12 @@ Point nextHeadPosition()
         case DIR_RIGHT: result.x += 1; break;
     }
 
+    if (wrap_walls)
+    {
+        result.x = (result.x + grid_w) % grid_w;
+        result.y = (result.y + grid_h) % grid_h;
+    }
+
     return result;
 }
 
@@ -761,7 +822,7 @@ int findAppleAt(const Point& p)
 {
     for (size_t i = 0; i < apples.size(); ++i)
     {
-        if (samePoint(apples[i].pos, p))
+        if (samePoint(apples[i], p))
             return (int)i;
     }
 
@@ -773,9 +834,6 @@ bool wouldHitSnake(const Point& newHead, bool growing)
     if (snake.empty())
         return false;
 
-    // Important bug fix:
-    // If the snake is NOT growing, the current tail moves away during this
-    // tick. Therefore moving into the old tail is legal.
     size_t checkEnd = snake.size();
 
     if (!growing && checkEnd > 0)
@@ -813,12 +871,10 @@ bool updateSnakeOneTick()
 
     if (growing)
     {
-        bool gold = apples[appleIndex].gold;
-        score += gold ? 50 : 10;
+        score += 1;
         apples.erase(apples.begin() + appleIndex);
-
-        // Maintain the configured apple count unless the board is full.
         spawnApple();
+        playEatSound();
     }
     else
     {
@@ -840,8 +896,6 @@ bool updateGame(float dtMs)
 
     const float interval = moveIntervalMs();
 
-    // Cap catch-up work after lag. Without a cap, a lag spike can cause many
-    // moves in one frame and make touch/D-pad input feel broken.
     int safetyTicks = 0;
 
     while (move_accumulator >= interval && safetyTicks < 4)
@@ -856,9 +910,6 @@ bool updateGame(float dtMs)
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// Input helpers
-// ---------------------------------------------------------------------------
 void readPhysicalDirection(u32 kDown, const circlePosition& circle)
 {
     if (kDown & KEY_DUP)
@@ -870,8 +921,6 @@ void readPhysicalDirection(u32 kDown, const circlePosition& circle)
     else if (kDown & KEY_DRIGHT)
         requestDirection(DIR_RIGHT);
 
-    // Circle pad is deliberately checked only when it crosses a useful
-    // threshold. This prevents tiny stick drift from changing direction.
     if (circle.dy > 60)
         requestDirection(DIR_UP);
     else if (circle.dy < -60)
@@ -882,17 +931,22 @@ void readPhysicalDirection(u32 kDown, const circlePosition& circle)
         requestDirection(DIR_RIGHT);
 }
 
-// ---------------------------------------------------------------------------
-// Button layout
-// ---------------------------------------------------------------------------
 Button BTN_START    = { 55,  45, 210, 42, "START" };
 Button BTN_SETTINGS = { 55,  98, 210, 42, "SETTINGS" };
 Button BTN_QUIT     = { 55, 151, 210, 42, "QUIT" };
 
-Button BTN_BACK     = { 10, 198, 82, 32, "BACK" };
-Button BTN_WHITE    = { 100, 198, 100, 32, "THEME" };
-Button BTN_VOL_DOWN = { 210, 198, 42, 32, "-" };
-Button BTN_VOL_UP   = { 262, 198, 42, 32, "+" };
+Button BTN_BACK        = {  10, 198, 140, 32, "BACK" };
+Button BTN_SETTINGS_NAV = { 170, 198, 140, 32, "NEXT >" };
+
+Button BTN_THEME    = { 10,  44, 300, 34, "THEME" };
+Button BTN_SFX      = { 10,  88, 300, 34, "SFX" };
+Button BTN_VOL_DOWN = { 10, 132,  60, 34, "-" };
+Button BTN_VOL_UP   = { 250, 132,  60, 34, "+" };
+
+Button BTN_WRAP      = {  10, 44, 145, 34, "WRAP" };
+Button BTN_GRID      = { 165, 44, 145, 34, "GRID" };
+Button BTN_COLOR     = {  10, 88, 300, 34, "COLOR" };
+Button BTN_RESET_HS  = {  10, 132, 300, 34, "RESET HIGH SCORE" };
 
 Button BTN_SIZE_S   = { 10,  54, 92, 34, "SMALL" };
 Button BTN_SIZE_M   = { 114, 54, 92, 34, "MEDIUM" };
@@ -901,27 +955,24 @@ Button BTN_SIZE_L   = { 218, 54, 92, 34, "LARGE" };
 Button BTN_APPLE_1  = { 10, 105, 56, 34, "1" };
 Button BTN_APPLE_3  = { 74, 105, 56, 34, "3" };
 Button BTN_APPLE_5  = { 138,105, 56, 34, "5" };
-Button BTN_APPLE_M   = { 204,105, 48, 34, "-" };
-Button BTN_APPLE_P   = { 262,105, 48, 34, "+" };
+Button BTN_APPLE_M  = { 204,105, 48, 34, "-" };
+Button BTN_APPLE_P  = { 262,105, 48, 34, "+" };
 
 Button BTN_SPEED_05 = { 10, 155, 92, 34, "0.5X" };
 Button BTN_SPEED_1  = { 114,155, 92, 34, "1.0X" };
 Button BTN_SPEED_2  = { 218,155, 92, 34, "2.0X" };
 Button BTN_PLAY     = { 108, 199,104, 34, "PLAY" };
 
-Button BTN_UP       = { 130, 30, 60, 48, "^" };
-Button BTN_DOWN     = { 130,162, 60, 48, "V" };
-Button BTN_LEFT     = { 50, 96, 60, 48, "<" };
-Button BTN_RIGHT    = { 210,96, 60, 48, ">" };
-Button BTN_PAUSE    = { 120, 216,80, 20, "PAUSE" };
+Button BTN_UP       = { 130,  48, 60, 40, "^" };
+Button BTN_DOWN     = { 130, 132, 60, 40, "V" };
+Button BTN_LEFT     = {  50,  90, 60, 40, "<" };
+Button BTN_RIGHT    = { 210,  90, 60, 40, ">" };
+Button BTN_PAUSE    = { 110, 178,100, 28, "PAUSE" };
 
 Button BTN_RETRY    = { 55,  65, 210, 42, "RETRY" };
 Button BTN_MENU     = { 55, 120, 210, 42, "MAIN MENU" };
 
-// ---------------------------------------------------------------------------
-// Main menu rendering
-// ---------------------------------------------------------------------------
-void renderMainMenu(u8* top, u8* bottom)
+void renderMainMenu(u8* top, u8* bottom, bool touchHeld, const touchPosition& t)
 {
     Color fg = foregroundColor();
 
@@ -949,73 +1000,134 @@ void renderMainMenu(u8* top, u8* bottom)
 
     drawBottomHeader(bottom, "MAIN MENU");
 
-    drawButton(bottom, BTN_START, false, false);
-    drawButton(bottom, BTN_SETTINGS, false, false);
-    drawButton(bottom, BTN_QUIT, false, false);
+    drawButton(bottom, BTN_START, false, isTouchOn(BTN_START, touchHeld, t));
+    drawButton(bottom, BTN_SETTINGS, false, isTouchOn(BTN_SETTINGS, touchHeld, t));
+    drawButton(bottom, BTN_QUIT, false, isTouchOn(BTN_QUIT, touchHeld, t));
 }
 
-// ---------------------------------------------------------------------------
-// Settings rendering
-// ---------------------------------------------------------------------------
-void renderSettings(u8* top, u8* bottom)
+void renderSettingsPage0(u8* top, u8* bottom, bool touchHeld, const touchPosition& t)
 {
     Color fg = foregroundColor();
 
     drawTopHeader(top, "SETTINGS", COL_CYAN);
 
     drawCenteredText(top, TOP_WIDTH / 2, 52,
-                     "CONTROLS", 2,
+                     "DISPLAY & SOUND", 2,
                      TOP_WIDTH, TOP_HEIGHT, COL_CYAN);
 
     drawPanel(top, 45, 82, 310, 118, TOP_WIDTH, TOP_HEIGHT);
 
-    drawString(top, 65, 98, "D-PAD", 2,
+    drawString(top, 60, 98, "D-PAD", 1,
                TOP_WIDTH, TOP_HEIGHT, fg);
-    drawString(top, 205, 98, "MOVE", 2,
-               TOP_WIDTH, TOP_HEIGHT, COL_GREEN);
+    drawString(top, 220, 98, "MOVE", 2,
+               TOP_WIDTH, TOP_HEIGHT, accentColor());
 
-    drawString(top, 65, 130, "CIRCLE PAD", 2,
+    drawString(top, 60, 130, "CIRCLE PAD", 1,
                TOP_WIDTH, TOP_HEIGHT, fg);
-    drawString(top, 205, 130, "MOVE", 2,
-               TOP_WIDTH, TOP_HEIGHT, COL_GREEN);
+    drawString(top, 220, 130, "MOVE", 2,
+               TOP_WIDTH, TOP_HEIGHT, accentColor());
 
-    drawString(top, 65, 162, "TOUCH", 2,
+    drawString(top, 60, 162, "TOUCH", 1,
                TOP_WIDTH, TOP_HEIGHT, fg);
-    drawString(top, 205, 162, "ARROWS", 2,
-               TOP_WIDTH, TOP_HEIGHT, COL_GREEN);
+    drawString(top, 220, 162, "ARROWS", 2,
+               TOP_WIDTH, TOP_HEIGHT, accentColor());
 
-    drawBottomHeader(bottom, "OPTIONS");
+    drawBottomHeader(bottom, "OPTIONS  1/2");
 
-    drawButton(bottom, BTN_BACK, false, false);
-    drawButton(bottom, BTN_WHITE, false, false);
-    drawButton(bottom, BTN_VOL_DOWN, false, false);
-    drawButton(bottom, BTN_VOL_UP, false, false);
+    char themeLabel[24];
+    sprintf(themeLabel, "THEME: %s", white_mode ? "LIGHT" : "DARK");
+    drawButtonLabeled(bottom, BTN_THEME, themeLabel, false, isTouchOn(BTN_THEME, touchHeld, t));
 
-    char volumeText[32];
-    sprintf(volumeText, "VOL %d%%", volume);
-    drawCenteredText(bottom, 160, 160,
+    char sfxLabel[24];
+    sprintf(sfxLabel, "SFX: %s", sfx_enabled ? "ON" : "OFF");
+    drawButtonLabeled(bottom, BTN_SFX, sfxLabel, false, isTouchOn(BTN_SFX, touchHeld, t));
+
+    drawButton(bottom, BTN_VOL_DOWN, false, isTouchOn(BTN_VOL_DOWN, touchHeld, t));
+    drawButton(bottom, BTN_VOL_UP, false, isTouchOn(BTN_VOL_UP, touchHeld, t));
+
+    char volumeText[16];
+    sprintf(volumeText, "%d%%", volume);
+    drawCenteredText(bottom, 160, 141,
                      volumeText, 2,
                      BOT_WIDTH, BOT_HEIGHT,
                      COL_GOLD);
 
-    drawString(bottom, 108, 183,
-               white_mode ? "LIGHT" : "DARK", 1,
-               BOT_WIDTH, BOT_HEIGHT, fg);
+    drawButton(bottom, BTN_BACK, false, isTouchOn(BTN_BACK, touchHeld, t));
+    drawButtonLabeled(bottom, BTN_SETTINGS_NAV, "NEXT >", false, isTouchOn(BTN_SETTINGS_NAV, touchHeld, t));
 }
 
-// ---------------------------------------------------------------------------
-// Configuration rendering
-// ---------------------------------------------------------------------------
-void renderConfig(u8* top, u8* bottom)
+void renderSettingsPage1(u8* top, u8* bottom, bool touchHeld, const touchPosition& t)
 {
     Color fg = foregroundColor();
 
-    drawTopHeader(top, "GAME SETUP", COL_GREEN);
+    drawTopHeader(top, "SETTINGS", COL_CYAN);
+
+    drawCenteredText(top, TOP_WIDTH / 2, 52,
+                     "GAMEPLAY", 2,
+                     TOP_WIDTH, TOP_HEIGHT, COL_CYAN);
+
+    drawPanel(top, 45, 82, 310, 118, TOP_WIDTH, TOP_HEIGHT);
+
+    drawString(top, 60, 98, "WRAP WALLS", 1,
+               TOP_WIDTH, TOP_HEIGHT, fg);
+    drawString(top, 250, 98, wrap_walls ? "ON" : "OFF", 1,
+               TOP_WIDTH, TOP_HEIGHT, accentColor());
+
+    drawString(top, 60, 118, "SHOW GRID", 1,
+               TOP_WIDTH, TOP_HEIGHT, fg);
+    drawString(top, 250, 118, show_grid ? "ON" : "OFF", 1,
+               TOP_WIDTH, TOP_HEIGHT, accentColor());
+
+    drawString(top, 60, 138, "SNAKE COLOR", 1,
+               TOP_WIDTH, TOP_HEIGHT, fg);
+    drawString(top, 250, 138, SNAKE_COLORS[snake_color_index].name, 1,
+               TOP_WIDTH, TOP_HEIGHT, accentColor());
+
+    drawString(top, 60, 168, "HIGH SCORE", 1,
+               TOP_WIDTH, TOP_HEIGHT, fg);
+    char hsTxt[16];
+    sprintf(hsTxt, "%d", highscore);
+    drawString(top, 250, 168, hsTxt, 1,
+               TOP_WIDTH, TOP_HEIGHT, COL_GOLD);
+
+    drawBottomHeader(bottom, "OPTIONS  2/2");
+
+    char wrapLabel[16];
+    sprintf(wrapLabel, "WRAP:%s", wrap_walls ? "ON" : "OFF");
+    drawButtonLabeled(bottom, BTN_WRAP, wrapLabel, false, isTouchOn(BTN_WRAP, touchHeld, t));
+
+    char gridLabel[16];
+    sprintf(gridLabel, "GRID:%s", show_grid ? "ON" : "OFF");
+    drawButtonLabeled(bottom, BTN_GRID, gridLabel, false, isTouchOn(BTN_GRID, touchHeld, t));
+
+    char colorLabel[32];
+    sprintf(colorLabel, "COLOR: %s", SNAKE_COLORS[snake_color_index].name);
+    drawButtonLabeled(bottom, BTN_COLOR, colorLabel, false, isTouchOn(BTN_COLOR, touchHeld, t));
+
+    drawButtonLabeled(bottom, BTN_RESET_HS, "RESET HIGH SCORE", false, isTouchOn(BTN_RESET_HS, touchHeld, t));
+
+    drawButton(bottom, BTN_BACK, false, isTouchOn(BTN_BACK, touchHeld, t));
+    drawButtonLabeled(bottom, BTN_SETTINGS_NAV, "< PREV", false, isTouchOn(BTN_SETTINGS_NAV, touchHeld, t));
+}
+
+void renderSettings(u8* top, u8* bottom, bool touchHeld, const touchPosition& t)
+{
+    if (settings_page == 0)
+        renderSettingsPage0(top, bottom, touchHeld, t);
+    else
+        renderSettingsPage1(top, bottom, touchHeld, t);
+}
+
+void renderConfig(u8* top, u8* bottom, bool touchHeld, const touchPosition& t)
+{
+    Color fg = foregroundColor();
+
+    drawTopHeader(top, "GAME SETUP", SNAKE_COLORS[snake_color_index].body_a);
 
     drawCenteredShadowedText(top, TOP_WIDTH / 2, 62,
                              "READY?", 3,
                              TOP_WIDTH, TOP_HEIGHT,
-                             COL_GREEN);
+                             SNAKE_COLORS[snake_color_index].body_a);
 
     char info[64];
     sprintf(info, "%s  |  %d APPLES  |  %s",
@@ -1026,7 +1138,12 @@ void renderConfig(u8* top, u8* bottom)
                      TOP_WIDTH, TOP_HEIGHT,
                      fg);
 
-    drawCenteredText(top, TOP_WIDTH / 2, 150,
+    drawCenteredText(top, TOP_WIDTH / 2, 135,
+                     wrap_walls ? "WRAP WALLS: ON" : "WRAP WALLS: OFF", 1,
+                     TOP_WIDTH, TOP_HEIGHT,
+                     COL_GRAY);
+
+    drawCenteredText(top, TOP_WIDTH / 2, 155,
                      "CHOOSE YOUR SETTINGS BELOW", 1,
                      TOP_WIDTH, TOP_HEIGHT,
                      COL_GRAY);
@@ -1036,18 +1153,18 @@ void renderConfig(u8* top, u8* bottom)
     drawString(bottom, 10, 34, "BOARD SIZE", 1,
                BOT_WIDTH, BOT_HEIGHT, fg);
 
-    drawButton(bottom, BTN_SIZE_S, current_size == SIZE_SMALL, false);
-    drawButton(bottom, BTN_SIZE_M, current_size == SIZE_MEDIUM, false);
-    drawButton(bottom, BTN_SIZE_L, current_size == SIZE_LARGE, false);
+    drawButton(bottom, BTN_SIZE_S, current_size == SIZE_SMALL, isTouchOn(BTN_SIZE_S, touchHeld, t));
+    drawButton(bottom, BTN_SIZE_M, current_size == SIZE_MEDIUM, isTouchOn(BTN_SIZE_M, touchHeld, t));
+    drawButton(bottom, BTN_SIZE_L, current_size == SIZE_LARGE, isTouchOn(BTN_SIZE_L, touchHeld, t));
 
     drawString(bottom, 10, 91, "APPLES", 1,
                BOT_WIDTH, BOT_HEIGHT, fg);
 
-    drawButton(bottom, BTN_APPLE_1, apple_count == 1, false);
-    drawButton(bottom, BTN_APPLE_3, apple_count == 3, false);
-    drawButton(bottom, BTN_APPLE_5, apple_count == 5, false);
-    drawButton(bottom, BTN_APPLE_M, false, false);
-    drawButton(bottom, BTN_APPLE_P, false, false);
+    drawButton(bottom, BTN_APPLE_1, apple_count == 1, isTouchOn(BTN_APPLE_1, touchHeld, t));
+    drawButton(bottom, BTN_APPLE_3, apple_count == 3, isTouchOn(BTN_APPLE_3, touchHeld, t));
+    drawButton(bottom, BTN_APPLE_5, apple_count == 5, isTouchOn(BTN_APPLE_5, touchHeld, t));
+    drawButton(bottom, BTN_APPLE_M, false, isTouchOn(BTN_APPLE_M, touchHeld, t));
+    drawButton(bottom, BTN_APPLE_P, false, isTouchOn(BTN_APPLE_P, touchHeld, t));
 
     char applesText[16];
     sprintf(applesText, "%d", apple_count);
@@ -1059,46 +1176,42 @@ void renderConfig(u8* top, u8* bottom)
     drawString(bottom, 10, 141, "SPEED", 1,
                BOT_WIDTH, BOT_HEIGHT, fg);
 
-    drawButton(bottom, BTN_SPEED_05, speed_multiplier == 0, false);
-    drawButton(bottom, BTN_SPEED_1, speed_multiplier == 1, false);
-    drawButton(bottom, BTN_SPEED_2, speed_multiplier == 2, false);
+    drawButton(bottom, BTN_SPEED_05, speed_multiplier == 0, isTouchOn(BTN_SPEED_05, touchHeld, t));
+    drawButton(bottom, BTN_SPEED_1, speed_multiplier == 1, isTouchOn(BTN_SPEED_1, touchHeld, t));
+    drawButton(bottom, BTN_SPEED_2, speed_multiplier == 2, isTouchOn(BTN_SPEED_2, touchHeld, t));
 
-    drawButton(bottom, BTN_PLAY, false, false);
+    drawButton(bottom, BTN_PLAY, false, isTouchOn(BTN_PLAY, touchHeld, t));
 }
 
-// ---------------------------------------------------------------------------
-// Game board rendering
-// ---------------------------------------------------------------------------
 void drawBoardBackground(u8* top)
 {
-    // Board background is slightly different from the global background,
-    // making the play area easier to see on a real 3DS screen.
     Color board = white_mode ? Color{238, 238, 242} : Color{12, 16, 22};
     fillRect(top, offset_x, offset_y,
              grid_w * cell_size,
              grid_h * cell_size,
              TOP_WIDTH, TOP_HEIGHT, board);
 
-    // A subtle grid is useful at medium and large sizes without becoming
-    // visually noisy on the small board.
-    Color grid = white_mode ? Color{220, 220, 225} : Color{22, 27, 35};
-
-    for (int x = 0; x <= grid_w; ++x)
+    if (show_grid)
     {
-        drawLineV(top,
-                  offset_x + x * cell_size,
-                  offset_y,
-                  grid_h * cell_size,
-                  TOP_WIDTH, TOP_HEIGHT, grid);
-    }
+        Color grid = white_mode ? Color{220, 220, 225} : Color{22, 27, 35};
 
-    for (int y = 0; y <= grid_h; ++y)
-    {
-        drawLineH(top,
-                  offset_x,
-                  offset_y + y * cell_size,
-                  grid_w * cell_size,
-                  TOP_WIDTH, TOP_HEIGHT, grid);
+        for (int x = 0; x <= grid_w; ++x)
+        {
+            drawLineV(top,
+                      offset_x + x * cell_size,
+                      offset_y,
+                      grid_h * cell_size,
+                      TOP_WIDTH, TOP_HEIGHT, grid);
+        }
+
+        for (int y = 0; y <= grid_h; ++y)
+        {
+            drawLineH(top,
+                      offset_x,
+                      offset_y + y * cell_size,
+                      grid_w * cell_size,
+                      TOP_WIDTH, TOP_HEIGHT, grid);
+        }
     }
 
     drawRect(top,
@@ -1110,24 +1223,20 @@ void drawBoardBackground(u8* top)
              COL_CYAN);
 }
 
-void drawApple(u8* top, const Apple& apple)
+void drawApple(u8* top, const Point& apple)
 {
-    int x = offset_x + apple.pos.x * cell_size;
-    int y = offset_y + apple.pos.y * cell_size;
-
-    Color c = apple.gold ? COL_GOLD : COL_RED;
+    int x = offset_x + apple.x * cell_size;
+    int y = offset_y + apple.y * cell_size;
 
     fillRect(top, x + 2, y + 2,
              cell_size - 4, cell_size - 4,
-             TOP_WIDTH, TOP_HEIGHT, c);
+             TOP_WIDTH, TOP_HEIGHT, COL_RED);
 
     drawRect(top, x + 1, y + 1,
              cell_size - 2, cell_size - 2,
              TOP_WIDTH, TOP_HEIGHT, COL_BLACK);
 
-    // Gold apples get a small highlight so they are distinguishable even
-    // when the screen is photographed in low light.
-    if (apple.gold && cell_size >= 8)
+    if (cell_size >= 8)
     {
         fillRect(top, x + 3, y + 3, 2, 2,
                  TOP_WIDTH, TOP_HEIGHT, COL_WHITE);
@@ -1139,14 +1248,15 @@ void drawSnakeSegment(u8* top, const Point& p, size_t index)
     int x = offset_x + p.x * cell_size;
     int y = offset_y + p.y * cell_size;
 
+    SnakeColorSet& pal = SNAKE_COLORS[snake_color_index];
     Color c;
 
     if (index == 0)
-        c = COL_GREEN_LITE;
+        c = pal.head;
     else if (index % 2 == 0)
-        c = COL_GREEN;
+        c = pal.body_a;
     else
-        c = COL_GREEN_DARK;
+        c = pal.body_b;
 
     fillRect(top, x + 1, y + 1,
              cell_size - 2, cell_size - 2,
@@ -1158,7 +1268,6 @@ void drawSnakeSegment(u8* top, const Point& p, size_t index)
 
     if (index == 0 && cell_size >= 10)
     {
-        // Two tiny eyes point in the current direction.
         int eye1x = x + 3;
         int eye2x = x + 6;
         int eyeY = y + 3;
@@ -1183,10 +1292,8 @@ void drawSnakeSegment(u8* top, const Point& p, size_t index)
     }
 }
 
-void renderGame(u8* top, u8* bottom)
+void renderGame(u8* top, u8* bottom, bool touchHeld, const touchPosition& t)
 {
-    Color fg = foregroundColor();
-
     drawBoardBackground(top);
 
     for (size_t i = 0; i < apples.size(); ++i)
@@ -1194,17 +1301,6 @@ void renderGame(u8* top, u8* bottom)
 
     for (size_t i = snake.size(); i > 0; --i)
         drawSnakeSegment(top, snake[i - 1], i - 1);
-
-    // Score bar overlays the top-left corner without covering the board when
-    // the board is large.
-    fillRect(top, 0, 0, TOP_WIDTH, 20,
-             TOP_WIDTH, TOP_HEIGHT,
-             white_mode ? Color{230, 230, 235} : Color{10, 12, 18});
-
-    char scoreText[64];
-    sprintf(scoreText, "SCORE %d   BEST %d", score, highscore);
-    drawString(top, 8, 5, scoreText, 1,
-               TOP_WIDTH, TOP_HEIGHT, fg);
 
     if (game_paused)
     {
@@ -1218,26 +1314,28 @@ void renderGame(u8* top, u8* bottom)
 
     drawBottomHeader(bottom, "CONTROLS");
 
-    drawButton(bottom, BTN_UP, false, false);
-    drawButton(bottom, BTN_DOWN, false, false);
-    drawButton(bottom, BTN_LEFT, false, false);
-    drawButton(bottom, BTN_RIGHT, false, false);
+    char scoreText[64];
+    sprintf(scoreText, "SCORE %d   BEST %d", score, highscore);
+    drawCenteredText(bottom, BOT_WIDTH / 2, 31,
+                     scoreText, 1,
+                     BOT_WIDTH, BOT_HEIGHT,
+                     COL_GOLD);
 
-    drawString(bottom, 115, 58, "TOUCH", 1,
-               BOT_WIDTH, BOT_HEIGHT, COL_GRAY);
-    drawString(bottom, 112, 78, "MOVE", 1,
-               BOT_WIDTH, BOT_HEIGHT, COL_GRAY);
+    drawButton(bottom, BTN_UP, false, isTouchOn(BTN_UP, touchHeld, t));
+    drawButton(bottom, BTN_DOWN, false, isTouchOn(BTN_DOWN, touchHeld, t));
+    drawButton(bottom, BTN_LEFT, false, isTouchOn(BTN_LEFT, touchHeld, t));
+    drawButton(bottom, BTN_RIGHT, false, isTouchOn(BTN_RIGHT, touchHeld, t));
 
-    drawCenteredText(bottom, 160, 218,
+    drawButtonLabeled(bottom, BTN_PAUSE, game_paused ? "RESUME" : "PAUSE",
+                      false, isTouchOn(BTN_PAUSE, touchHeld, t));
+
+    drawCenteredText(bottom, 160, 212,
                      game_paused ? "PAUSED" : "PLAYING", 1,
                      BOT_WIDTH, BOT_HEIGHT,
-                     game_paused ? COL_GOLD : COL_GREEN);
+                     game_paused ? COL_GOLD : accentColor());
 }
 
-// ---------------------------------------------------------------------------
-// Game over rendering
-// ---------------------------------------------------------------------------
-void renderGameOver(u8* top, u8* bottom)
+void renderGameOver(u8* top, u8* bottom, bool touchHeld, const touchPosition& t)
 {
     Color fg = foregroundColor();
 
@@ -1271,27 +1369,11 @@ void renderGameOver(u8* top, u8* bottom)
     }
 
     drawBottomHeader(bottom, "TRY AGAIN?");
-    drawButton(bottom, BTN_RETRY, false, false);
-    drawButton(bottom, BTN_MENU, false, false);
+    drawButton(bottom, BTN_RETRY, false, isTouchOn(BTN_RETRY, touchHeld, t));
+    drawButton(bottom, BTN_MENU, false, isTouchOn(BTN_MENU, touchHeld, t));
 }
 
-// ---------------------------------------------------------------------------
-// Touch helpers
-// ---------------------------------------------------------------------------
-bool getTouchPress(u32 kDown, touchPosition& touch)
-{
-    if (!(kDown & KEY_TOUCH))
-        return false;
-
-    hidTouchRead(&touch);
-    return true;
-}
-
-// ---------------------------------------------------------------------------
-// Main menu input
-// ---------------------------------------------------------------------------
-void handleMainMenuInput(u32 kDown, const touchPosition& touch,
-                         GameState& state)
+void handleMainMenuInput(u32 kDown, const touchPosition& touch, GameState& state)
 {
     if (!(kDown & KEY_TOUCH))
         return;
@@ -1304,6 +1386,7 @@ void handleMainMenuInput(u32 kDown, const touchPosition& touch,
 
     if (BTN_SETTINGS.isClicked(touch))
     {
+        settings_page = 0;
         state = STATE_SETTINGS;
         return;
     }
@@ -1315,11 +1398,7 @@ void handleMainMenuInput(u32 kDown, const touchPosition& touch,
     }
 }
 
-// ---------------------------------------------------------------------------
-// Settings input
-// ---------------------------------------------------------------------------
-void handleSettingsInput(u32 kDown, const touchPosition& touch,
-                         GameState& state)
+void handleSettingsInput(u32 kDown, const touchPosition& touch, GameState& state)
 {
     if (!(kDown & KEY_TOUCH))
         return;
@@ -1330,34 +1409,79 @@ void handleSettingsInput(u32 kDown, const touchPosition& touch,
         return;
     }
 
-    if (BTN_WHITE.isClicked(touch))
+    if (BTN_SETTINGS_NAV.isClicked(touch))
     {
-        white_mode = !white_mode;
+        settings_page = (settings_page == 0) ? 1 : 0;
         return;
     }
 
-    if (BTN_VOL_DOWN.isClicked(touch))
+    if (settings_page == 0)
     {
-        volume -= 10;
-        if (volume < 0) volume = 0;
-        applyVolume();
-        return;
-    }
+        if (BTN_THEME.isClicked(touch))
+        {
+            white_mode = !white_mode;
+            saveSettings();
+            return;
+        }
 
-    if (BTN_VOL_UP.isClicked(touch))
+        if (BTN_SFX.isClicked(touch))
+        {
+            sfx_enabled = !sfx_enabled;
+            saveSettings();
+            return;
+        }
+
+        if (BTN_VOL_DOWN.isClicked(touch))
+        {
+            volume -= 10;
+            if (volume < 0) volume = 0;
+            applyVolume();
+            saveSettings();
+            return;
+        }
+
+        if (BTN_VOL_UP.isClicked(touch))
+        {
+            volume += 10;
+            if (volume > 100) volume = 100;
+            applyVolume();
+            saveSettings();
+            return;
+        }
+    }
+    else
     {
-        volume += 10;
-        if (volume > 100) volume = 100;
-        applyVolume();
-        return;
+        if (BTN_WRAP.isClicked(touch))
+        {
+            wrap_walls = !wrap_walls;
+            saveSettings();
+            return;
+        }
+
+        if (BTN_GRID.isClicked(touch))
+        {
+            show_grid = !show_grid;
+            saveSettings();
+            return;
+        }
+
+        if (BTN_COLOR.isClicked(touch))
+        {
+            snake_color_index = (snake_color_index + 1) % SNAKE_COLOR_COUNT;
+            saveSettings();
+            return;
+        }
+
+        if (BTN_RESET_HS.isClicked(touch))
+        {
+            highscore = 0;
+            saveHighscore();
+            return;
+        }
     }
 }
 
-// ---------------------------------------------------------------------------
-// Configuration input
-// ---------------------------------------------------------------------------
-void handleConfigInput(u32 kDown, const touchPosition& touch,
-                       GameState& state)
+void handleConfigInput(u32 kDown, const touchPosition& touch, GameState& state)
 {
     if (!(kDown & KEY_TOUCH))
         return;
@@ -1365,36 +1489,42 @@ void handleConfigInput(u32 kDown, const touchPosition& touch,
     if (BTN_SIZE_S.isClicked(touch))
     {
         current_size = SIZE_SMALL;
+        saveSettings();
         return;
     }
 
     if (BTN_SIZE_M.isClicked(touch))
     {
         current_size = SIZE_MEDIUM;
+        saveSettings();
         return;
     }
 
     if (BTN_SIZE_L.isClicked(touch))
     {
         current_size = SIZE_LARGE;
+        saveSettings();
         return;
     }
 
     if (BTN_APPLE_1.isClicked(touch))
     {
         apple_count = 1;
+        saveSettings();
         return;
     }
 
     if (BTN_APPLE_3.isClicked(touch))
     {
         apple_count = 3;
+        saveSettings();
         return;
     }
 
     if (BTN_APPLE_5.isClicked(touch))
     {
         apple_count = 5;
+        saveSettings();
         return;
     }
 
@@ -1402,6 +1532,7 @@ void handleConfigInput(u32 kDown, const touchPosition& touch,
     {
         --apple_count;
         if (apple_count < 1) apple_count = 1;
+        saveSettings();
         return;
     }
 
@@ -1409,24 +1540,28 @@ void handleConfigInput(u32 kDown, const touchPosition& touch,
     {
         ++apple_count;
         if (apple_count > MAX_APPLES) apple_count = MAX_APPLES;
+        saveSettings();
         return;
     }
 
     if (BTN_SPEED_05.isClicked(touch))
     {
         speed_multiplier = 0;
+        saveSettings();
         return;
     }
 
     if (BTN_SPEED_1.isClicked(touch))
     {
         speed_multiplier = 1;
+        saveSettings();
         return;
     }
 
     if (BTN_SPEED_2.isClicked(touch))
     {
         speed_multiplier = 2;
+        saveSettings();
         return;
     }
 
@@ -1438,11 +1573,7 @@ void handleConfigInput(u32 kDown, const touchPosition& touch,
     }
 }
 
-// ---------------------------------------------------------------------------
-// Playing input
-// ---------------------------------------------------------------------------
-void handlePlayingInput(u32 kDown, const touchPosition& touch,
-                        bool hasTouch)
+void handlePlayingInput(u32 kDown, const touchPosition& touch, bool hasTouch)
 {
     if (kDown & KEY_START)
     {
@@ -1452,6 +1583,12 @@ void handlePlayingInput(u32 kDown, const touchPosition& touch,
 
     if (!hasTouch)
         return;
+
+    if (BTN_PAUSE.isClicked(touch))
+    {
+        game_paused = !game_paused;
+        return;
+    }
 
     if (BTN_UP.isClicked(touch))
     {
@@ -1478,11 +1615,7 @@ void handlePlayingInput(u32 kDown, const touchPosition& touch,
     }
 }
 
-// ---------------------------------------------------------------------------
-// Game-over input
-// ---------------------------------------------------------------------------
-void handleGameOverInput(u32 kDown, const touchPosition& touch,
-                         GameState& state)
+void handleGameOverInput(u32 kDown, const touchPosition& touch, GameState& state)
 {
     if (!(kDown & KEY_TOUCH))
         return;
@@ -1501,9 +1634,6 @@ void handleGameOverInput(u32 kDown, const touchPosition& touch,
     }
 }
 
-// ---------------------------------------------------------------------------
-// Highscore update
-// ---------------------------------------------------------------------------
 void checkHighscore()
 {
     if (score > highscore)
@@ -1513,9 +1643,6 @@ void checkHighscore()
     }
 }
 
-// ---------------------------------------------------------------------------
-// Main
-// ---------------------------------------------------------------------------
 int main(int argc, char** argv)
 {
     (void)argc;
@@ -1528,7 +1655,9 @@ int main(int argc, char** argv)
     Result ndspRes = ndspInit();
 
     loadHighscore();
+    loadSettings();
     applyVolume();
+    initAudio(ndspRes == 0);
 
     srand((unsigned int)(time(NULL) ^ osGetTime()));
 
@@ -1541,50 +1670,57 @@ int main(int argc, char** argv)
         hidScanInput();
 
         u32 kDown = hidKeysDown();
+        u32 kHeld = hidKeysHeld();
+
         circlePosition circle;
         hidCircleRead(&circle);
 
-        touchPosition touch;
-        bool hasTouch = getTouchPress(kDown, touch);
+        touchPosition touchDown;
+        bool hasTouchDown = (kDown & KEY_TOUCH) != 0;
+        if (hasTouchDown)
+            hidTouchRead(&touchDown);
+
+        touchPosition touchNow;
+        bool touchHeld = (kHeld & KEY_TOUCH) != 0;
+        if (touchHeld)
+            hidTouchRead(&touchNow);
+        else
+        {
+            touchNow.px = 0;
+            touchNow.py = 0;
+        }
 
         ++global_frame;
 
-        // ---------------------------------------------------------------
-        // INPUT
-        // ---------------------------------------------------------------
         if (state == STATE_MAIN_MENU)
         {
-            handleMainMenuInput(kDown, touch, state);
+            handleMainMenuInput(kDown, touchDown, state);
         }
         else if (state == STATE_SETTINGS)
         {
-            handleSettingsInput(kDown, touch, state);
+            handleSettingsInput(kDown, touchDown, state);
         }
         else if (state == STATE_CONFIG)
         {
-            handleConfigInput(kDown, touch, state);
+            handleConfigInput(kDown, touchDown, state);
         }
         else if (state == STATE_PLAYING)
         {
             readPhysicalDirection(kDown, circle);
-            handlePlayingInput(kDown, touch, hasTouch);
+            handlePlayingInput(kDown, touchDown, hasTouchDown);
         }
         else if (state == STATE_GAME_OVER)
         {
-            handleGameOverInput(kDown, touch, state);
+            handleGameOverInput(kDown, touchDown, state);
         }
 
         if (exit_requested)
             break;
 
-        // ---------------------------------------------------------------
-        // UPDATE
-        // ---------------------------------------------------------------
         unsigned int now = osGetTime();
         unsigned int elapsed = now - last_tick_ms;
         last_tick_ms = now;
 
-        // Avoid enormous dt after the app has been backgrounded.
         if (elapsed > 250)
             elapsed = 250;
 
@@ -1592,43 +1728,38 @@ int main(int argc, char** argv)
         {
             if (!updateGame((float)elapsed))
             {
+                playGameOverSound();
                 checkHighscore();
                 state = STATE_GAME_OVER;
             }
         }
 
-        // ---------------------------------------------------------------
-        // FRAMEBUFFERS
-        // ---------------------------------------------------------------
         u8* top_fb = gfxGetFramebuffer(GFX_TOP, GFX_LEFT, NULL, NULL);
         u8* bot_fb = gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, NULL, NULL);
 
         clearScreen(top_fb, TOP_WIDTH, TOP_HEIGHT, backgroundColor());
         clearScreen(bot_fb, BOT_WIDTH, BOT_HEIGHT, backgroundColor());
 
-        // ---------------------------------------------------------------
-        // RENDER
-        // ---------------------------------------------------------------
         switch (state)
         {
             case STATE_MAIN_MENU:
-                renderMainMenu(top_fb, bot_fb);
+                renderMainMenu(top_fb, bot_fb, touchHeld, touchNow);
                 break;
 
             case STATE_SETTINGS:
-                renderSettings(top_fb, bot_fb);
+                renderSettings(top_fb, bot_fb, touchHeld, touchNow);
                 break;
 
             case STATE_CONFIG:
-                renderConfig(top_fb, bot_fb);
+                renderConfig(top_fb, bot_fb, touchHeld, touchNow);
                 break;
 
             case STATE_PLAYING:
-                renderGame(top_fb, bot_fb);
+                renderGame(top_fb, bot_fb, touchHeld, touchNow);
                 break;
 
             case STATE_GAME_OVER:
-                renderGameOver(top_fb, bot_fb);
+                renderGameOver(top_fb, bot_fb, touchHeld, touchNow);
                 break;
         }
 
@@ -1638,6 +1769,7 @@ int main(int argc, char** argv)
     }
 
     checkHighscore();
+    exitAudio();
 
     if (ndspRes == 0)
         ndspExit();
@@ -1645,12 +1777,3 @@ int main(int argc, char** argv)
     gfxExit();
     return 0;
 }
-
-// ============================================================================
-// END OF FILE
-// ============================================================================
-// Notes for devkitPro / devkitARM:
-//   - Compile as C++ (not C).
-//   - Link against the normal 3DS libraries provided by devkitPro.
-//   - The source intentionally uses only standard C/C++ + libctru APIs.
-// ============================================================================
