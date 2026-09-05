@@ -25,6 +25,7 @@
 #include <cstring>
 #include <cstdio>
 #include <cstdint>
+#include <cstdlib>
 #include <malloc.h>
 
 // =============================================================================
@@ -50,7 +51,13 @@ Settings Settings::load() {
 
     std::string line;
     if (std::getline(in, line) && !line.empty()) {
-        try { s.port = static_cast<uint16_t>(std::stoi(line)); } catch (...) {}
+        // std::stoi wirft bei Fehlern Exceptions, die im Build deaktiviert sind
+        // (-fno-exceptions) -> stattdessen exception-frei mit strtol parsen.
+        char* endPtr = nullptr;
+        long value = strtol(line.c_str(), &endPtr, 10);
+        if (endPtr != line.c_str() && value > 0 && value <= 65535) {
+            s.port = static_cast<uint16_t>(value);
+        }
     }
     if (std::getline(in, line)) s.username = line;
     if (std::getline(in, line)) s.password = line;
