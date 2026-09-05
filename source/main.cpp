@@ -617,7 +617,7 @@ void loadSettings()
         return;
 
     int values[25];
-    for (int i = 0; i < 25; ++i
+    for (int i = 0; i < 25; ++i)
         values[i] = 0;
 
     int count = 0;
@@ -810,6 +810,8 @@ bool pointOnApple(const Point& p)
 
     return false;
 }
+
+bool pointBlocked(const Point& p);
 
 bool findFreeCell(Point& result)
 {
