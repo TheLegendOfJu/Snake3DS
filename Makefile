@@ -1,6 +1,47 @@
-STREAMING_CHUNK:Checking environment variables...#---------------------------------------------------------------------------------3DS Homebrew Makefile (Snake3DS)#---------------------------------------------------------------------------------ifeq ($(strip $(DEVKITPRO)),)$(error "Please set DEVKITPRO in your environment. export DEVKITPRO=devkitpro")endifinclude $(DEVKITPRO)/3ds_rulesSTREAMING_CHUNK:Setting target and source directories...TARGET      := Snake3DSBUILD       := buildSOURCES     := sourceDATA        := dataINCLUDES    := includeARCH        := -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=softSTREAMING_CHUNK:Configuring compiler flags...CFLAGS      := -g -Wall -O2 -mword-relocations -fomit-frame-pointer -ffunction-sections $(ARCH) -DARM11 -D_3DSCXXFLAGS    := $(CFLAGS) -std=gnu++17ASFLAGS     := -g $(ARCH)LDFLAGS     := -specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $(basename$@)).mapLIBS        := -lctru -lmSTREAMING_CHUNK:Defining build rules...ifneq ($(BUILD),$(notdir$(CURDIR)))export OUTPUT   := $(CURDIR)/$(TARGET)export VPATH    := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir))export DEPSDIR  := $(CURDIR)/$(BUILD)CFILES      := $(foreach dir,$(SOURCES),$(notdir $(wildcard$(dir)/*.c)))
-CPPFILES    := $(foreach dir,$(SOURCES),$(notdir $(wildcard$(dir)/.cpp)))
-sFILES      := $(foreach dir,$(SOURCES),$(notdir $(wildcard$(dir)/.s)))SFILES      := $(foreach dir,$(SOURCES),$(notdir $(wildcard$(dir)/*.S)))export OFILES := $(CPPFILES:.cpp=.o)$(CFILES:.c=.o) $(sFILES:.s=.o)$(SFILES:.S=.o)export INCLUDE := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
-$(foreach dir,$(SOURCES),-I$(CURDIR)/$(dir)) \
--I$(CURDIR)/$(BUILD).PHONY: clean allall: $(BUILD)
-@$(MAKE) --no-print-directory -C $(BUILD) -f$(CURDIR)/Makefile$(BUILD):@mkdir -p $@clean:@echo clean ...@rm -rf $(BUILD)$(TARGET).3dsx $(TARGET).elf $(TARGET).smdhelseSTREAMING_CHUNK:Building target objects and dependencies...DEPENDS := $(OFILES:.o=.d)$(OUTPUT).3dsx :$(OUTPUT).elf$(OUTPUT).elf  :$(OFILES)%.o: %.cpp@echo $(notdir$<)@$(CXX) -MMD -MP -MF$(DEPSDIR)/$*.d $(CXXFLAGS) -c $< -o$@%.o: %.c@echo $(notdir$<)@$(CC) -MMD -MP -MF$(DEPSDIR)/$*.d $(CFLAGS) -c $< -o$@-include $(DEPENDS)endif
+# Target Name der Ausgabedatei
+TARGET      := HomebrewApp
+
+# Verzeichnisse
+BUILD       := build
+SOURCES     := source
+INCLUDES    := include
+
+# devkitARM Setup prüfen
+ifeq ($(strip $(DEVKITARM)),)
+$(error "DEVKITARM ist nicht gesetzt. Bitte lade die devkitPro-Umgebung.")
+endif
+include $(DEVKITARM)/3ds_rules
+
+# Compiler-Flags
+ARCH        := -mfloat-abi=hard -mfpu=vfp -mtune=mpcore -mword-relocations
+CFLAGS      := -g -Wall -O2 -mword-relocations -fomit-frame-pointer -ffunction-sections $(ARCH) -D__3DS__
+CXXFLAGS    := $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++17
+LDFLAGS     := -specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
+LIBS        := -lctru -lm
+
+# Include- & Lib-Pfade
+INCLUDE     := -I$(CURDIR)/$(INCLUDES) -I$(CTRULIB)/include
+LIBPATHS    := -L$(CTRULIB)/lib
+
+# Dateien suchen
+CPPFILES    := $(wildcard $(SOURCES)/*.cpp)
+OFILES      := $(patsubst $(SOURCES)/%.cpp,$(BUILD)/%.o,$(CPPFILES))
+
+# Build-Regeln
+.PHONY: all clean
+
+all: $(BUILD) $(TARGET).3dsx
+
+$(BUILD):
+	@mkdir -p $(BUILD)
+
+$(TARGET).3dsx: $(TARGET).elf
+
+$(TARGET).elf: $(OFILES)
+	@$(CXX) -o $@ $^ $(LDFLAGS) $(LIBPATHS) $(LIBS)
+
+$(BUILD)/%.o: $(SOURCES)/%.cpp
+	@$(CXX) $(CXXFLAGS) $(INCLUDE) -c $< -o $@
+
+clean:
+	@rm -rf $(BUILD) $(TARGET).3dsx $(TARGET).elf *.map
