@@ -1,6 +1,7 @@
 #include <3ds.h>
 #include <citro2d.h>
 #include <cstdio>
+#include <cstdarg>
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
@@ -13,9 +14,6 @@ using std::string;
 
 static C3D_RenderTarget* top = nullptr;
 static C3D_RenderTarget* bottom = nullptr;
-
-
-
 
 
 static const int SCREEN_W = 400;
@@ -31,12 +29,9 @@ static const float MAX_FALL = 8.0f;
 static const int LEVEL_COUNT = 15;
 
 
-
-
-
 static void rect(float x, float y, float w, float h, u32 color)
 {
-    C2D_DrawRectSolid(x, y, w, h, color);
+    C2D_DrawRectSolid(x, y, 0.0f, w, h, color);
     C2D_DrawRectSolid(x, y, w, 1.5f, C2D_Color32(0,0,0,255));
     C2D_DrawRectSolid(x, y + h - 1.5f, w, 1.5f, C2D_Color32(0,0,0,255));
     C2D_DrawRectSolid(x, y, 1.5f, h, C2D_Color32(0,0,0,255));
@@ -88,9 +83,6 @@ static void drawText(float x, float y, float sx, float sy, u32 color,
 }
 
 
-
-
-
 struct Theme
 {
     u32 sky;
@@ -124,9 +116,6 @@ static const Theme themes[] =
       C2D_Color32(255, 115, 80, 255), C2D_Color32(175, 65, 45, 255),
       C2D_Color32(255, 190, 30, 255) }
 };
-
-
-
 
 
 struct Rect
@@ -166,9 +155,6 @@ struct Level
 };
 
 static vector<Level> levels;
-
-
-
 
 
 struct Player
@@ -411,7 +397,6 @@ static void updateAdvancedSystems()
 }
 
 
-
 static int currentLevel = 0;
 static int unlockedLevel = 0;
 static int gameState = 0;
@@ -424,9 +409,6 @@ static bool levelRestartRequested = false;
 static u64 frameCounter = 0;
 static float cameraX = 0.0f;
 static float cameraY = 0.0f;
-
-
-
 
 
 static Level makeLevel(const char* name, int theme, const vector<string>& rows)
@@ -643,9 +625,6 @@ static void buildLevels()
 }
 
 
-
-
-
 static bool solidAt(int tx, int ty)
 {
     if (ty < 0 || ty >= levels[currentLevel].height ||
@@ -681,9 +660,6 @@ static bool intersects(float ax, float ay, float aw, float ah,
     return ax < bx + bw && ax + aw > bx &&
            ay < by + bh && ay + ah > by;
 }
-
-
-
 
 
 static void resetPlayer()
@@ -727,9 +703,6 @@ static void startLevel(int index)
 }
 
 
-
-
-
 static u32 held()
 {
     return hidKeysHeld();
@@ -739,9 +712,6 @@ static u32 down()
 {
     return hidKeysDown();
 }
-
-
-
 
 
 static void moveHorizontal(float amount)
@@ -941,9 +911,6 @@ static void updatePlayer()
 }
 
 
-
-
-
 static void drawBackground(const Theme& t)
 {
     rect(0, 0, SCREEN_W, SCREEN_H, t.sky);
@@ -969,9 +936,6 @@ static void drawBackground(const Theme& t)
         }
     }
 }
-
-
-
 
 
 static void drawTiles(const Theme& t)
@@ -1078,9 +1042,6 @@ static void drawPlayer(const Theme& t)
 }
 
 
-
-
-
 static void drawHUD(const Theme& t)
 {
     rect(0, 0, SCREEN_W, 24, C2D_Color32(20,25,35,205));
@@ -1104,16 +1065,13 @@ static void drawHUD(const Theme& t)
 }
 
 
-
-
-
 static void drawTopFrame()
 {
     const u32 black = C2D_Color32(0,0,0,255);
-    C2D_DrawRectSolid(0, 0, 400, 3, black);
-    C2D_DrawRectSolid(0, 237, 400, 3, black);
-    C2D_DrawRectSolid(0, 0, 3, 240, black);
-    C2D_DrawRectSolid(397, 0, 3, 240, black);
+    C2D_DrawRectSolid(0, 0, 0.0f, 400, 3, black);
+    C2D_DrawRectSolid(0, 237, 0.0f, 400, 3, black);
+    C2D_DrawRectSolid(0, 0, 0.0f, 3, 240, black);
+    C2D_DrawRectSolid(397, 0, 0.0f, 3, 240, black);
 }
 
 static void drawGame()
@@ -1139,9 +1097,6 @@ static void drawGame()
 
     C3D_FrameEnd(0);
 }
-
-
-
 
 
 static void bottomPanel(u32 color = C2D_Color32(25,28,38,255))
@@ -1171,9 +1126,6 @@ static void drawButton(float x, float y, float w, float h,
     drawText(x + 10, y + 9, 0.58f, 0.58f,
              C2D_Color32(255,255,255,255), "%s", label);
 }
-
-
-
 
 
 static int menuSelection = 0;
@@ -1226,9 +1178,6 @@ static void drawMenu()
 
     bottomEnd();
 }
-
-
-
 
 
 static int levelCursor = 0;
@@ -1320,9 +1269,6 @@ static void drawLevelSelect()
 }
 
 
-
-
-
 static int pauseSelection = 0;
 
 static void updatePause()
@@ -1372,9 +1318,6 @@ static void drawPause()
 
     bottomEnd();
 }
-
-
-
 
 
 static void updateWin()
@@ -1462,9 +1405,6 @@ static void drawGameOver()
 }
 
 
-
-
-
 static void handleGlobalInput()
 {
     u32 d = down();
@@ -1474,9 +1414,6 @@ static void handleGlobalInput()
     else if (gameState == 3 && (d & KEY_START))
         gameState = 1;
 }
-
-
-
 
 
 static bool initGraphics()
@@ -1509,10 +1446,6 @@ static void shutdownGraphics()
     C3D_Fini();
     gfxExit();
 }
-
-
-
-
 
 
 static float clampFloat(float v, float lo, float hi)
@@ -1809,7 +1742,6 @@ static void runExtraGameplayLogic()
 {
     updateEffects();
 }
-
 
 
 static bool levelHasCoin(int index)
