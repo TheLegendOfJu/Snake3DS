@@ -1020,9 +1020,9 @@ static void drawTiles(const Theme& t)
 
         if (p.w >= 18.0f)
         {
-            C2D_DrawRectSolid(sx + 4, sy + 7, 3, 2,
+            C2D_DrawRectSolid(sx + 4, sy + 7, 0.0f, 3, 2,
                               C2D_Color32(255,255,255,25));
-            C2D_DrawRectSolid(sx + p.w - 7, sy + 11, 2, 2,
+            C2D_DrawRectSolid(sx + p.w - 7, sy + 11, 0.0f, 2, 2,
                               C2D_Color32(0,0,0,30));
         }
     }
