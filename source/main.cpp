@@ -16,7 +16,7 @@ Player currentPlayer = PLAYER_X;
 Player humanPlayer = PLAYER_X;
 GameState state = PLAYING;
 bool darkMode = true;
-bool needsRedraw = true; // Verhindert Bildschirm-Flackern!
+bool needsRedraw = true; 
 
 void resetBoard() {
     for (int i = 0; i < 9; i++) board[i] = NONE;
@@ -109,69 +109,98 @@ void aiMove() {
     needsRedraw = true;
 }
 
-// Globales UI Rendering ohne Clear-Screen Flackern
 void drawUI() {
     const char* bg = darkMode ? "\x1b[37;40m" : "\x1b[30;47m";
     const char* activeBg = darkMode ? "\x1b[30;47m" : "\x1b[37;40m";
 
     // --- TOP SCREEN ---
     consoleSelect(&topScreen);
-    printf("%s\x1b[1;1H", bg);
-    printf("\x1b[2J"); // Nur bei Render-Call leeren
-    printf("\x1b[2;11H=== TIC TAC TOE ===");
+    printf("%s\x1b[2J", bg); 
     
-    if (state == GAMEOVER) {
-        Player w = checkWin();
-        if (w == NONE) printf("\x1b[4;11H  UNENTSCHIEDEN!   ");
-        else printf("\x1b[4;11H GEWINNER: %c       ", w == PLAYER_X ? 'X' : 'O');
-    } else if (state == MENU_2P_SELECT) {
-        printf("\x1b[4;7H[2P] Waehle X oder O unten!");
-    } else {
-        printf("\x1b[4;11H AM ZUG: %c         ", currentPlayer == PLAYER_X ? 'X' : 'O');
+    // 30x30 Riesiges Raster (1:1 Seitenverhältnis, zentriert)
+    for(int r = 1; r <= 29; r++) {
+        for(int c = 11; c <= 39; c++) {
+            if (r == 10 || r == 20) {
+                if (c == 20 || c == 30) printf("\x1b[%d;%dH+", r, c);
+                else printf("\x1b[%d;%dH-", r, c);
+            } else {
+                if (c == 20 || c == 30) printf("\x1b[%d;%dH|", r, c);
+            }
+        }
     }
 
-    // Spielfeld Oben
-    for (int i = 0; i < 9; i++) {
-        int col = 11 + (i % 3) * 6;
-        int row = 8 + (i / 3) * 3;
-        char c = (board[i] == NONE) ? ' ' : (board[i] == PLAYER_X ? 'X' : 'O');
-        printf("\x1b[%d;%dH+---+", row - 1, col);
-        printf("\x1b[%d;%dH| %c |", row, col, c);
-        printf("\x1b[%d;%dH+---+", row + 1, col);
+    // Riesige ASCII X und O
+    for(int i = 0; i < 9; i++) {
+        if (board[i] == NONE) continue;
+        int row = 1 + (i / 3) * 10;
+        int col = 11 + (i % 3) * 10;
+        
+        if (board[i] == PLAYER_X) {
+            printf("\x1b[%d;%dHXX     XX", row+1, col);
+            printf("\x1b[%d;%dH XX   XX ", row+2, col);
+            printf("\x1b[%d;%dH  XX XX  ", row+3, col);
+            printf("\x1b[%d;%dH   XXX   ", row+4, col);
+            printf("\x1b[%d;%dH  XX XX  ", row+5, col);
+            printf("\x1b[%d;%dH XX   XX ", row+6, col);
+            printf("\x1b[%d;%dHXX     XX", row+7, col);
+        } else {
+            printf("\x1b[%d;%dH  OOOOO  ", row+1, col);
+            printf("\x1b[%d;%dH OO   OO ", row+2, col);
+            printf("\x1b[%d;%dHOO     OO", row+3, col);
+            printf("\x1b[%d;%dHOO     OO", row+4, col);
+            printf("\x1b[%d;%dHOO     OO", row+5, col);
+            printf("\x1b[%d;%dH OO   OO ", row+6, col);
+            printf("\x1b[%d;%dH  OOOOO  ", row+7, col);
+        }
     }
 
     // --- BOTTOM SCREEN ---
     consoleSelect(&bottomScreen);
-    printf("%s\x1b[1;1H", bg);
-    printf("\x1b[2J");
+    printf("%s\x1b[2J", bg);
 
-    // 5 Modi-Buttons ganz oben nebeneinander (Zeile 1 bis 3)
-    const char* mNames[5] = {" 2P ", "Easy", "Med ", "Hard", "Imp "};
+    // 5 Modi-Tabs (Zeile 1-2, volle Breite)
+    const char* mNames[5] = {"   2P   ", "  Easy  ", " Medium ", "  Hard  ", " Imposs "};
     for (int i = 0; i < 5; i++) {
         bool isSel = (currentMode == i);
         printf("\x1b[1;%dH%s%s%s", i * 8 + 1, isSel ? activeBg : bg, mNames[i], bg);
+        printf("\x1b[2;%dH%s        %s", i * 8 + 1, isSel ? activeBg : bg, bg); 
     }
 
-    // 2-Player Sonderauswahl Menu
     if (state == MENU_2P_SELECT) {
-        printf("\x1b[6;5HWer beginnt?");
-        printf("\x1b[8;5H[ S2: X ]   [ S2: O ]");
+        printf("\x1b[12;8H+---------+    +---------+");
+        printf("\x1b[13;8H| S1: X   |    | S1: O   |");
+        printf("\x1b[14;8H+---------+    +---------+");
+        printf("\x1b[17;12H(Bitte oben waehlen)");
     } else {
-        // Touch-Spielfeld Unten (Größer für leichte Bedienung)
-        for (int i = 0; i < 9; i++) {
-            int col = 7 + (i % 3) * 8;
-            int row = 6 + (i / 3) * 4;
-            char c = (board[i] == NONE) ? ' ' : (board[i] == PLAYER_X ? 'X' : 'O');
-            printf("\x1b[%d;%dH+-----+", row - 1, col);
-            printf("\x1b[%d;%dH|  %c  |", row, col, c);
-            printf("\x1b[%d;%dH+-----+", row + 1, col);
+        // Kleineres Touch-Gitter unten
+        for(int r = 5; r <= 21; r++) {
+            for(int c = 9; c <= 31; c++) {
+                if (r == 10 || r == 16) {
+                    if (c == 16 || c == 24) printf("\x1b[%d;%dH+", r, c);
+                    else printf("\x1b[%d;%dH-", r, c);
+                } else {
+                    if (c == 16 || c == 24) printf("\x1b[%d;%dH|", r, c);
+                }
+            }
+        }
+        for(int i = 0; i < 9; i++) {
+            if (board[i] == NONE) continue;
+            int row = 5 + (i / 3) * 6;
+            int col = 9 + (i % 3) * 8;
+            printf("\x1b[%d;%dH%c", row + 2, col + 3, board[i] == PLAYER_X ? 'X' : 'O'); 
         }
     }
 
-    // Footer Buttons
-    printf("\x1b[21;2H[ Mode: %s ]", mNames[currentMode]);
-    printf("\x1b[23;2H[ T: Dark/White Toggle ]");
-    if (state == GAMEOVER) printf("\x1b[23;26H[ Neustart ]");
+    // UI Texte unten
+    if (state == GAMEOVER) {
+        Player w = checkWin();
+        if (w == NONE) printf("\x1b[25;13H UNENTSCHIEDEN! ");
+        else printf("\x1b[25;14H GEWINNER: %c ", w == PLAYER_X ? 'X' : 'O');
+        printf("\x1b[27;14H [ Neustart ] ");
+    } else if (state == PLAYING) {
+        printf("\x1b[25;15H AM ZUG: %c ", currentPlayer == PLAYER_X ? 'X' : 'O');
+    }
+    printf("\x1b[29;8H[ T: Dark/White Toggle (hier tippen) ]");
 }
 
 int main(int argc, char **argv) {
@@ -192,38 +221,36 @@ int main(int argc, char **argv) {
             touchPosition touch;
             hidTouchRead(&touch);
 
-            // 1. Modi-Auswahl Oben (Y: 0-30 px, X verteilt von 0 bis 320 px)
+            // 1. Modi-Tabs (obere 30 Pixel, verteilt in 5 Zonen à 64 Pixel)
             if (touch.py <= 30) {
-                int selectedMode = touch.px / 64; // 320 / 5 = 64px pro Button
+                int selectedMode = touch.px / 64; 
                 if (selectedMode >= 0 && selectedMode < 5) {
                     currentMode = (Mode)selectedMode;
                     humanPlayer = PLAYER_X;
                     resetBoard();
                 }
             }
-
-            // 2. Theme Toggle (Unten Links)
-            else if (touch.py > 160 && touch.px < 150) {
+            // 2. Theme Toggle (Ganz unten)
+            else if (touch.py > 200) {
                 darkMode = !darkMode;
                 needsRedraw = true;
             }
-
-            // 3. 2-Player X/O Modus Wahl
+            // 3. 2-Player X/O Auswahl
             else if (state == MENU_2P_SELECT) {
-                if (touch.py > 40 && touch.py < 80) {
-                    if (touch.px < 160) humanPlayer = PLAYER_X;
-                    else humanPlayer = PLAYER_O;
+                if (touch.py > 80 && touch.py < 160) {
+                    humanPlayer = (touch.px < 160) ? PLAYER_X : PLAYER_O;
                     state = PLAYING;
                     needsRedraw = true;
                 }
             }
-
-            // 4. Spielfeld Touch (Raster 3x3 im Bereich X: 45-255, Y: 40-160)
+            // 4. Spielfeld Touch auf dem 3x3 Raster
             else if (state == PLAYING) {
                 if (currentMode == MODE_2P || currentPlayer == humanPlayer) {
-                    if (touch.px >= 45 && touch.px <= 255 && touch.py >= 40 && touch.py <= 160) {
-                        int col = (touch.px - 45) / 70;
-                        int row = (touch.py - 40) / 40;
+                    if (touch.px >= 72 && touch.px <= 256 && touch.py >= 40 && touch.py <= 176) {
+                        int col = (touch.px - 72) / 61;
+                        int row = (touch.py - 40) / 45;
+                        if (col > 2) col = 2;
+                        if (row > 2) row = 2;
                         int idx = row * 3 + col;
 
                         if (idx >= 0 && idx < 9 && board[idx] == NONE) {
@@ -234,20 +261,17 @@ int main(int argc, char **argv) {
                                 state = GAMEOVER;
                             } else {
                                 currentPlayer = (currentPlayer == PLAYER_X) ? PLAYER_O : PLAYER_X;
-                                if (currentMode != MODE_2P) {
-                                    aiMove();
-                                }
+                                if (currentMode != MODE_2P) aiMove();
                             }
                         }
                     }
                 }
             } 
             else if (state == GAMEOVER) {
-                resetBoard();
+                resetBoard(); // Überall Tippen startet neu
             }
         }
 
-        // Zeichne NUR neu, wenn eine Eingabe/Aktion passiert ist (Fix gegen Flackern)
         if (needsRedraw) {
             drawUI();
             needsRedraw = false;
