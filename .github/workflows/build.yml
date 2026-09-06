@@ -20,12 +20,6 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install 3DS Dependencies
-        run: |
-          dkp-pacman -Sy --noconfirm devkitpro-keyring
-          dkp-pacman -Syu --noconfirm
-          dkp-pacman -S --needed --noconfirm 3ds-dev
-
       - name: Compile Project
         run: |
           make
