@@ -32,10 +32,10 @@ static const int LEVEL_COUNT = 15;
 static void rect(float x, float y, float w, float h, u32 color)
 {
     C2D_DrawRectSolid(x, y, 0.0f, w, h, color);
-    C2D_DrawRectSolid(x, y, w, 1.5f, C2D_Color32(0,0,0,255));
-    C2D_DrawRectSolid(x, y + h - 1.5f, w, 1.5f, C2D_Color32(0,0,0,255));
-    C2D_DrawRectSolid(x, y, 1.5f, h, C2D_Color32(0,0,0,255));
-    C2D_DrawRectSolid(x + w - 1.5f, y, 1.5f, h, C2D_Color32(0,0,0,255));
+    C2D_DrawRectSolid(x, y, 0.0f, w, 1.5f, C2D_Color32(0,0,0,255));
+    C2D_DrawRectSolid(x, y + h - 1.5f, 0.0f, w, 1.5f, C2D_Color32(0,0,0,255));
+    C2D_DrawRectSolid(x, y, 0.0f, 1.5f, h, C2D_Color32(0,0,0,255));
+    C2D_DrawRectSolid(x + w - 1.5f, y, 0.0f, 1.5f, h, C2D_Color32(0,0,0,255));
 }
 
 static void line(float x1, float y1, float x2, float y2, float width, u32 color)
