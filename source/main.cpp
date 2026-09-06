@@ -183,6 +183,24 @@ static bool dashActive = false;
 static int dashFrames = 0;
 static bool doubleJumpAvailable = true;
 
+// --- EINGEFÜGTE VARIABLEN UND FORWARD-DECLARATIONS ---
+static int currentLevel = 0;
+static int unlockedLevel = 0;
+static int gameState = 0;
+static bool running = true;
+static bool levelCompleted = false;
+static bool levelRestartRequested = false;
+static u64 frameCounter = 0;
+static float cameraX = 0.0f;
+static float cameraY = 0.0f;
+
+static void resetPlayer();
+static bool intersects(float ax, float ay, float aw, float ah, float bx, float by, float bw, float bh);
+static u32 down();
+static u32 held();
+static void drawExtraHUD();
+// -----------------------------------------------------
+
 struct Particle
 {
     float x;
@@ -395,21 +413,6 @@ static void updateAdvancedSystems()
     updateParticles();
     updateScore();
 }
-
-
-static int currentLevel = 0;
-static int unlockedLevel = 0;
-static int gameState = 0;
-
-
-static bool running = true;
-static bool levelCompleted = false;
-static bool levelRestartRequested = false;
-
-static u64 frameCounter = 0;
-static float cameraX = 0.0f;
-static float cameraY = 0.0f;
-
 
 static Level makeLevel(const char* name, int theme, const vector<string>& rows)
 {
@@ -1428,7 +1431,7 @@ static bool initGraphics()
     C2D_Init(C2D_DEFAULT_MAX_OBJECTS);
     C2D_Prepare();
 
-    systemFont = C2D_FontLoadSystem(CFG_REGION_USA_EU);
+    systemFont = C2D_FontLoadSystem(CFG_REGION_EUR);
     textBuf = C2D_TextBufNew(32768);
 
     return top != nullptr && bottom != nullptr;
@@ -1672,7 +1675,7 @@ static void updateCamera()
     float target = player.x - 145.0f;
     float maxCamera = levels[currentLevel].width * TILE - SCREEN_W;
 
-    target = clampFloat(target, 0.0f, (float)std::max(0, maxCamera));
+    target = clampFloat(target, 0.0f, (float)std::max(0.0f, maxCamera));
     cameraX = approach(cameraX, target, 1.8f);
 }
 
