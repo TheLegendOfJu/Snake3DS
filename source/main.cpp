@@ -139,6 +139,12 @@ struct Enemy
     bool alive;
 };
 
+struct Platform
+{
+    float x, y, w, h;
+    bool top;
+};
+
 struct Level
 {
     int width;
@@ -183,7 +189,6 @@ static bool dashActive = false;
 static int dashFrames = 0;
 static bool doubleJumpAvailable = true;
 
-// --- EINGEFÜGTE VARIABLEN UND FORWARD-DECLARATIONS ---
 static int currentLevel = 0;
 static int unlockedLevel = 0;
 static int gameState = 0;
@@ -193,13 +198,18 @@ static bool levelRestartRequested = false;
 static u64 frameCounter = 0;
 static float cameraX = 0.0f;
 static float cameraY = 0.0f;
+static vector<Platform> activePlatforms;
+static float platformBuildCameraX = -100000.0f;
+static const float PLATFORM_ACTIVE_RANGE = 520.0f;
+static float coyoteTimer = 0.0f;
+static int jumpBuffer = 0;
 
 static void resetPlayer();
 static bool intersects(float ax, float ay, float aw, float ah, float bx, float by, float bw, float bh);
 static u32 down();
 static u32 held();
 static void drawExtraHUD();
-// -----------------------------------------------------
+static bool isNearCamera(float x, float width = 0.0f);
 
 struct Particle
 {
@@ -256,6 +266,9 @@ static void drawParticles()
 {
     for (const Particle& p : particles)
     {
+        if (!isNearCamera(p.x, p.size))
+            continue;
+
         float a = std::max(0.0f, std::min(1.0f, p.life / 20.0f));
         u8 alpha = (u8)(255.0f * a);
         u32 c = (p.color & 0xFFFFFF00) | alpha;
@@ -652,6 +665,60 @@ static bool solidRect(const Rect& r)
     return false;
 }
 
+
+static void refreshNearbyPlatforms()
+{
+    if (levels.empty())
+        return;
+
+    if (std::abs(cameraX - platformBuildCameraX) < 24.0f && !activePlatforms.empty())
+        return;
+
+    const Level& l = levels[currentLevel];
+    const float leftWorld = std::max(0.0f, cameraX - PLATFORM_ACTIVE_RANGE);
+    const float rightWorld = std::min((float)l.width * TILE, cameraX + SCREEN_W + PLATFORM_ACTIVE_RANGE);
+    const int startX = std::max(0, (int)floorf(leftWorld / TILE) - 1);
+    const int endX = std::min(l.width, (int)ceilf(rightWorld / TILE) + 1);
+
+    activePlatforms.clear();
+    activePlatforms.reserve((endX - startX) * l.height / 2 + 8);
+
+    for (int y = 0; y < l.height; ++y)
+    {
+        int x = startX;
+        while (x < endX)
+        {
+            while (x < endX && l.map[y][x] != '#')
+                ++x;
+
+            if (x >= endX)
+                break;
+
+            const int runStart = x;
+            while (x < endX && l.map[y][x] == '#')
+                ++x;
+
+            Platform p;
+            p.x = runStart * TILE;
+            p.y = y * TILE;
+            p.w = (x - runStart) * TILE;
+            p.h = TILE;
+            p.top = y == 0 || !solidAt(runStart, y - 1);
+
+            if (p.x + p.w >= leftWorld - TILE && p.x <= rightWorld + TILE)
+                activePlatforms.push_back(p);
+        }
+    }
+
+    platformBuildCameraX = cameraX;
+}
+
+static bool isNearCamera(float x, float width)
+{
+    return x + width >= cameraX - PLATFORM_ACTIVE_RANGE &&
+           x <= cameraX + SCREEN_W + PLATFORM_ACTIVE_RANGE;
+}
+
 static Rect playerRect()
 {
     return { player.x + 2, player.y + 1, player.w - 4, player.h - 2 };
@@ -691,6 +758,8 @@ static void resetPlayer()
 
     cameraX = 0;
     cameraY = 0;
+    platformBuildCameraX = -100000.0f;
+    activePlatforms.clear();
     levelCompleted = false;
 }
 
@@ -772,7 +841,7 @@ static void updateEnemies()
 {
     for (auto& e : levels[currentLevel].enemies)
     {
-        if (!e.alive)
+        if (!e.alive || !isNearCamera(e.x, 16.0f))
             continue;
 
         e.x += e.vx;
@@ -819,7 +888,7 @@ static void collectCoins()
 {
     for (auto& c : levels[currentLevel].coins)
     {
-        if (c.taken)
+        if (c.taken || !isNearCamera(c.x, 10.0f))
             continue;
 
         if (intersects(player.x, player.y, player.w, player.h,
@@ -854,33 +923,47 @@ static void updatePlayer()
     bool left = k & KEY_LEFT;
     bool right = k & KEY_RIGHT;
     bool sprint = (k & KEY_X) || (k & KEY_Y);
-    bool jump = (d & KEY_A) || (d & KEY_B);
+    bool jumpPressed = (d & KEY_A) || (d & KEY_B);
 
-    float target = 0;
+    if (jumpPressed)
+        jumpBuffer = 6;
+    else if (jumpBuffer > 0)
+        --jumpBuffer;
 
-    if (left) target = sprint ? -SPRINT_SPEED : -WALK_SPEED;
-    if (right) target = sprint ? SPRINT_SPEED : WALK_SPEED;
+    if (player.grounded)
+        coyoteTimer = 7.0f;
+    else if (coyoteTimer > 0.0f)
+        coyoteTimer -= 1.0f;
 
-    if (target != 0)
+    float target = 0.0f;
+    if (left)
+        target = sprint ? -SPRINT_SPEED : -WALK_SPEED;
+    else if (right)
+        target = sprint ? SPRINT_SPEED : WALK_SPEED;
+
+    if (target != 0.0f)
     {
-        player.vx += (target - player.vx) * 0.35f;
+        float acceleration = dashActive ? 0.5f : 0.30f;
+        player.vx += (target - player.vx) * acceleration;
         player.animation++;
     }
-    else
+    else if (!dashActive)
     {
-        player.vx *= 0.72f;
-        if (std::abs(player.vx) < 0.05f)
-            player.vx = 0;
+        player.vx *= 0.76f;
+        if (std::abs(player.vx) < 0.04f)
+            player.vx = 0.0f;
     }
 
-    if (jump && player.grounded)
+    if (jumpBuffer > 0 && coyoteTimer > 0.0f)
     {
         player.vy = JUMP_VEL;
         player.grounded = false;
+        coyoteTimer = 0.0f;
+        jumpBuffer = 0;
+        doubleJumpAvailable = true;
     }
 
     player.wasGrounded = player.grounded;
-
     moveHorizontal(player.vx);
 
     player.vy += GRAVITY;
@@ -903,69 +986,44 @@ static void updatePlayer()
         else
             resetPlayer();
     }
-
-    float targetCam = player.x - 145;
-    float maxCam = levels[currentLevel].width * TILE - SCREEN_W;
-
-    if (targetCam < 0) targetCam = 0;
-    if (targetCam > maxCam) targetCam = (float)maxCam;
-
-    cameraX += (targetCam - cameraX) * 0.12f;
 }
 
 
-static void drawBackground(const Theme& t)
+static void drawBackground(const Theme&)
 {
-    rect(0, 0, SCREEN_W, SCREEN_H, t.sky);
-
-    for (int i = 0; i < 7; ++i)
-    {
-        float px = fmodf(i * 105.0f - cameraX * 0.12f, 470.0f) - 35;
-        float ph = 45 + (i % 3) * 18;
-        rect(px, 130 - ph, 110, ph + 70, t.sky2);
-    }
-
-    for (int i = 0; i < 9; ++i)
-    {
-        float px = fmodf(i * 82.0f - cameraX * 0.20f, 470.0f) - 35;
-        float h = 30 + (i % 4) * 14;
-
-
-        for (int s = 0; s < 8; ++s)
-        {
-            float yy = 175 - h + s * 5;
-            float ww = 12 + s * 10;
-            rect(px + 55 - ww / 2, yy, ww, 8, t.mountain);
-        }
-    }
+    C2D_DrawRectSolid(0.0f, 0.0f, 0.0f, SCREEN_W, SCREEN_H,
+                      C2D_Color32(45, 145, 235, 255));
 }
-
 
 static void drawTiles(const Theme& t)
 {
-    const Level& l = levels[currentLevel];
+    refreshNearbyPlatforms();
 
-    int startX = std::max(0, (int)(cameraX / TILE) - 2);
-    int endX = std::min(l.width, startX + 30);
-
-    for (int y = 0; y < l.height; ++y)
+    for (const Platform& p : activePlatforms)
     {
-        for (int x = startX; x < endX; ++x)
+        float sx = p.x - cameraX;
+        float sy = p.y - cameraY;
+
+        rect(sx, sy, p.w, p.h, t.ground);
+
+        if (p.top)
+            C2D_DrawRectSolid(sx, sy, 0.0f, p.w, 3.0f, t.groundTop);
+
+        C2D_DrawRectSolid(sx, sy, 0.0f, p.w, 1.5f,
+                          C2D_Color32(0,0,0,255));
+        C2D_DrawRectSolid(sx, sy + p.h - 1.5f, 0.0f, p.w, 1.5f,
+                          C2D_Color32(0,0,0,255));
+        C2D_DrawRectSolid(sx, sy, 0.0f, 1.5f, p.h,
+                          C2D_Color32(0,0,0,255));
+        C2D_DrawRectSolid(sx + p.w - 1.5f, sy, 0.0f, 1.5f, p.h,
+                          C2D_Color32(0,0,0,255));
+
+        if (p.w >= 18.0f)
         {
-            if (l.map[y][x] != '#')
-                continue;
-
-            float sx = x * TILE - cameraX;
-            float sy = y * TILE - cameraY;
-
-            rect(sx, sy, TILE, TILE, t.ground);
-
-            if (!solidAt(x, y - 1))
-                rect(sx, sy, TILE, 3, t.groundTop);
-
-
-            rect(sx + 2, sy + 6, 3, 2, C2D_Color32(255,255,255,25));
-            rect(sx + 10, sy + 11, 2, 2, C2D_Color32(0,0,0,30));
+            C2D_DrawRectSolid(sx + 4, sy + 7, 3, 2,
+                              C2D_Color32(255,255,255,25));
+            C2D_DrawRectSolid(sx + p.w - 7, sy + 11, 2, 2,
+                              C2D_Color32(0,0,0,30));
         }
     }
 }
@@ -986,7 +1044,7 @@ static void drawCoins(const Theme& t)
 {
     for (const auto& c : levels[currentLevel].coins)
     {
-        if (c.taken)
+        if (c.taken || !isNearCamera(c.x, 10.0f))
             continue;
 
         float bob = sinf((float)frameCounter * 0.08f + c.phase) * 2.0f;
@@ -1003,7 +1061,7 @@ static void drawEnemies()
 {
     for (const auto& e : levels[currentLevel].enemies)
     {
-        if (!e.alive)
+        if (!e.alive || !isNearCamera(e.x, 16.0f))
             continue;
 
         float x = e.x - cameraX;
@@ -1081,9 +1139,7 @@ static void drawGame()
 {
     const Theme& t = themes[levels[currentLevel].theme];
 
-    C2D_TargetClear(top, t.sky);
-
-    C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
+    C2D_TargetClear(top, C2D_Color32(45, 145, 235, 255));
     C2D_SceneBegin(top);
 
     drawBackground(t);
@@ -1097,21 +1153,16 @@ static void drawGame()
     drawScoreEffects();
     drawExtraHUD();
     drawTopFrame();
-
-    C3D_FrameEnd(0);
 }
-
 
 static void bottomPanel(u32 color = C2D_Color32(25,28,38,255))
 {
     C2D_TargetClear(bottom, color);
-    C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
     C2D_SceneBegin(bottom);
 }
 
 static void bottomEnd()
 {
-    C3D_FrameEnd(0);
 }
 
 static void drawButton(float x, float y, float w, float h,
@@ -1677,6 +1728,7 @@ static void updateCamera()
 
     target = clampFloat(target, 0.0f, (float)std::max(0.0f, maxCamera));
     cameraX = approach(cameraX, target, 1.8f);
+    refreshNearbyPlatforms();
 }
 
 static void updateAnimation()
@@ -1860,7 +1912,7 @@ static void animateCoin(Coin& c)
 static void animateAllCoins()
 {
     for (Coin& c : levels[currentLevel].coins)
-        if (!c.taken)
+        if (!c.taken && isNearCamera(c.x, 10.0f))
             animateCoin(c);
 }
 
@@ -1937,12 +1989,14 @@ int main()
         else if (gameState == 5)
             updateGameOver();
 
+        C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
+        C2D_TextBufClear(textBuf);
+
         if (gameState == 0)
             drawMenu();
         else if (gameState == 1)
         {
             drawGame();
-
 
             bottomPanel(C2D_Color32(22,26,37,255));
 
@@ -2005,6 +2059,7 @@ int main()
         else if (gameState == 5)
             drawGameOver();
 
+        C3D_FrameEnd(0);
         frameCounter++;
         gspWaitForVBlank();
     }
