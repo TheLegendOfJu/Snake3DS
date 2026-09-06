@@ -1857,8 +1857,8 @@ static void drawPlayer(const Theme& t) {
     
     // Trail if dashing
     if (dashActive) {
-        rectSolid(px - player.vx + 2, py + 5 - bob, 10, 10, C2D_Color32(t.player & 0xFFFFFF00 | 100));
-        rectSolid(px - player.vx*2 + 2, py + 5 - bob, 10, 10, C2D_Color32(t.player & 0xFFFFFF00 | 50));
+        rectSolid(px - player.vx + 2, py + 5 - bob, 10, 10, t.player & 0xFFFFFF00 | 100);
+        rectSolid(px - player.vx*2 + 2, py + 5 - bob, 10, 10, t.player & 0xFFFFFF00 | 50);
     }
 
     rect(px + 2, py + 5 - bob, 10, 10, t.player);
